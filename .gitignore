@@ -1,0 +1,22 @@
+# Generated web bundle — produced by scripts/build.ps1 from the
+# Lexicon and mumble-bridge builds. Never edit or commit.
+/www/
+
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Android build output
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/local.properties
+/android/.idea/
+/android/app/release/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+.DS_Store
+Thumbs.db

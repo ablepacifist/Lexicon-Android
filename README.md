@@ -50,6 +50,38 @@ LexiconAndroid/
 The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`.
 Install with `adb install -r <path>`.
 
+## Android Studio
+
+Open the **`android/`** folder as the project — not the repo root. `npx cap open android`
+does this for you.
+
+First-time setup:
+
+- **SDK location** — Settings → Languages & Frameworks → Android SDK → point it at
+  your existing SDK rather than letting Studio download a second copy.
+  `android/local.properties` already records the path (gitignored, machine-specific).
+- **Gradle JDK** — Settings → Build, Execution, Deployment → Build Tools → Gradle.
+  Studio's bundled JBR is new enough; any JDK 21+ works. JDK 17 does **not**
+  (`invalid source release: 21`).
+
+Then: **Run ▶** builds, installs and launches on a connected device or emulator, and
+**Build → Build Bundle(s)/APK(s) → Build APK(s)** produces the same debug APK as the
+CLI. `gradlew` lives at `android/gradlew` — Studio uses that same wrapper, so CLI and
+IDE builds are identical.
+
+> **The gotcha:** Studio only builds the *native* project. It does **not** rebuild
+> Lexicon or re-copy the voice client, so after changing anything in `Lexicon/` or
+> `mumble-bridge/public/` you must re-run `./scripts/build.ps1` (or at minimum
+> `npx cap sync android`) before pressing Run — otherwise you are shipping stale
+> assets and will be debugging code that is not in the APK.
+
+## Release builds
+
+The debug APK is signed with the shared debug key and ships JS source maps
+(~6 MB). For a real release, generate a keystore, configure `signingConfigs` in
+`android/app/build.gradle`, build the web assets with `GENERATE_SOURCEMAP=false`,
+and use `./gradlew assembleRelease`.
+
 ## How the native build differs from the website
 
 The bundled pages are served from the WebView's own origin (`https://localhost`),

@@ -28,8 +28,13 @@ LexiconAndroid/
 ## Prerequisites
 
 - Node 18+
-- **JDK 17** and the **Android SDK** (Android Studio, or the SDK command-line
-  tools) with `ANDROID_HOME` set. Required for `cap sync` and Gradle.
+- **JDK 21 or newer.** Capacitor's `capacitor-android` module compiles at source
+  release 21; a JDK 17 toolchain fails with `invalid source release: 21`.
+  `build.ps1 -Apk` finds a suitable JDK automatically if `JAVA_HOME` points at
+  an older one.
+- The **Android SDK** with `ANDROID_HOME` set — platform 36 and build-tools 36
+  (matching `android/variables.gradle`). Android Studio or the SDK
+  command-line tools both work.
 - Sibling checkouts of `Lexicon` and `discord-clone`, i.e. this repo sits inside
   `full-back-end-server/` next to them. Override with `-LexiconPath` /
   `-BridgePublicPath` if your layout differs.

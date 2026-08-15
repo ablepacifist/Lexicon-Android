@@ -34,6 +34,47 @@ $repo  = Split-Path -Parent $PSScriptRoot
 $www   = Join-Path $repo "www"
 $voice = Join-Path $www  "voice"
 
+# Capacitor 8's capacitor-android module compiles with source release 21, so a
+# JDK 17 toolchain fails with "invalid source release: 21".
+$MIN_JDK = 21
+
+function Get-JavaMajor([string]$javaHome) {
+    if (-not $javaHome) { return 0 }
+    if (-not (Test-Path (Join-Path $javaHome "bin\java.exe"))) { return 0 }
+
+    # Read the JDK's own release manifest rather than running `java -version`:
+    # that writes to stderr, and under $ErrorActionPreference='Stop' PowerShell 5.1
+    # turns native-command stderr into a terminating NativeCommandError.
+    $release = Join-Path $javaHome "release"
+    if (Test-Path $release) {
+        $match = Select-String -Path $release -Pattern '^JAVA_VERSION="?(\d+)' |
+                 Select-Object -First 1
+        if ($match) { return [int]$match.Matches[0].Groups[1].Value }
+    }
+    return 0
+}
+
+function Resolve-JdkForGradle {
+    if ((Get-JavaMajor $env:JAVA_HOME) -ge $MIN_JDK) { return $env:JAVA_HOME }
+
+    $bases = @(
+        "$env:USERPROFILE\Documents",
+        "$env:USERPROFILE\.jdks",
+        "C:\Program Files\Microsoft",
+        "C:\Program Files\Java",
+        "C:\Program Files\Eclipse Adoptium",
+        "C:\Program Files\Amazon Corretto"
+    )
+    foreach ($base in $bases) {
+        if (-not (Test-Path $base)) { continue }
+        $dirs = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue
+        foreach ($d in $dirs) {
+            if ((Get-JavaMajor $d.FullName) -ge $MIN_JDK) { return $d.FullName }
+        }
+    }
+    throw "Capacitor's Android project needs JDK $MIN_JDK or newer; none found. Set JAVA_HOME to a JDK $MIN_JDK+ install."
+}
+
 function Resolve-RequiredPath([string]$path, [string]$label) {
     $full = Join-Path $repo $path
     if (-not (Test-Path $full)) {
@@ -122,6 +163,13 @@ if ($Apk) {
         -not (Test-Path (Join-Path $repo "android\local.properties"))) {
         throw "Android SDK not found. Install Android Studio (or the SDK command-line tools) and set ANDROID_HOME."
     }
+
+    $jdk = Resolve-JdkForGradle
+    if ($jdk -ne $env:JAVA_HOME) {
+        Write-Host "      Using JDK $jdk for Gradle" -ForegroundColor DarkGray
+        $env:JAVA_HOME = $jdk
+    }
+
     Push-Location (Join-Path $repo "android")
     try {
         ./gradlew assembleDebug

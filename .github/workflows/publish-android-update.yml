@@ -70,8 +70,12 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-          printf '\n' >> ~/.ssh/id_ed25519
+/g')"
+          SSH_KEY_CONTENT="${DEPLOY_SSH_KEY//$'\r'/}"
+          SSH_KEY_CONTENT="${SSH_KEY_CONTENT#\"}"
+          SSH_KEY_CONTENT="${SSH_KEY_CONTENT%\"}"
+          SSH_KEY_CONTENT="${SSH_KEY_CONTENT//\\n/$'\n'}"
+          printf '%s\n' "$SSH_KEY_CONTENT" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
 

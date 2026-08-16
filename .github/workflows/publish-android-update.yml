@@ -148,6 +148,21 @@ jobs:
               rm -f "$KEY_FILE.decoded"
             fi
           fi
+
+          # A copy/paste that missed the first and last lines leaves only the
+          # base64 body. Re-attach the armor when that body really is a key.
+          if ! grep -q -- '-----BEGIN' "$KEY_FILE"; then
+            if tr -d '\n' < "$KEY_FILE" | base64 -d 2>/dev/null \
+               | head -c 14 | grep -qa 'openssh-key-v1'; then
+              echo "Secret was missing its BEGIN/END lines; re-attaching them."
+              {
+                echo '-----BEGIN OPENSSH PRIVATE KEY-----'
+                cat "$KEY_FILE"
+                echo '-----END OPENSSH PRIVATE KEY-----'
+              } > "$KEY_FILE.armored"
+              mv "$KEY_FILE.armored" "$KEY_FILE"
+            fi
+          fi
           chmod 600 "$KEY_FILE"
 
           key_is_encrypted() {

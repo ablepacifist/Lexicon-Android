@@ -288,10 +288,16 @@ if (-not (Test-Path $envPath)) { New-Item -ItemType File -Path $envPath | Out-Nu
 
 $changelog = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($ChangelogB64))
 
+# The deploy paths are relative to the SSH user's home, but the server resolves
+# app.update.apk-path against its own working directory - a different base, which
+# yielded a 404 on download. Write the resolved absolute path so neither side has
+# to guess, with forward slashes so nothing downstream treats \ as an escape.
+$latestApkForEnv = $latestApk -replace '\\', '/'
+
 Set-EnvValue $envPath 'APP_UPDATE_VERSION_CODE'    $VersionCode
 Set-EnvValue $envPath 'APP_UPDATE_VERSION_NAME'    $VersionName
 Set-EnvValue $envPath 'APP_UPDATE_DOWNLOAD_URL'    $DownloadUrl
-Set-EnvValue $envPath 'APP_UPDATE_APK_PATH'        $LatestApkIn
+Set-EnvValue $envPath 'APP_UPDATE_APK_PATH'        $latestApkForEnv
 Set-EnvValue $envPath 'APP_UPDATE_CRITICAL'        $Critical
 Set-EnvValue $envPath 'APP_UPDATE_CHANGELOG'       $changelog
 Set-EnvValue $envPath 'APP_UPDATE_SHA256'          $Sha256

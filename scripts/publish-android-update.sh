@@ -242,7 +242,22 @@ function Resolve-DeployPath([string]$p) {
 }
 
 function Set-EnvValue([string]$file, [string]$key, [string]$value) {
-  if (Test-Path $file) { $lines = @(Get-Content -Path $file) } else { $lines = @() }
+  # The read MUST specify UTF-8. PowerShell 5.1's Get-Content defaults to the ANSI
+  # codepage, so a UTF-8 character read as ANSI becomes several mojibake characters,
+  # which are then written back as UTF-8 and re-read as still more characters. That
+  # feedback loop grew a single em-dash in a comment into a 1.6 GB line.
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  if (Test-Path $file) {
+    # A .env is a few KB. Anything past 1 MB means something has corrupted it, and
+    # rewriting would compound the damage - stop and let a human look instead.
+    $sizeBytes = (Get-Item $file).Length
+    if ($sizeBytes -gt 1MB) {
+      throw "Refusing to edit '$file': it is $([math]::Round($sizeBytes/1MB,1)) MB, which is far too large for an env file. Inspect it before publishing again."
+    }
+    $lines = @([System.IO.File]::ReadAllLines($file, [System.Text.Encoding]::UTF8))
+  } else {
+    $lines = @()
+  }
   $pattern = '^' + [regex]::Escape($key) + '='
   $found = $false
   for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -250,7 +265,6 @@ function Set-EnvValue([string]$file, [string]$key, [string]$value) {
   }
   if (-not $found) { $lines += "$key=$value" }
   # LF endings, no BOM - keeps the file readable by dotenv-style parsers.
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($file, (($lines -join "`n") + "`n"), $utf8NoBom)
 }
 

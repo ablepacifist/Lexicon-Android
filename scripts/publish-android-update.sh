@@ -198,54 +198,98 @@ else
   echo "Uploading APK to $USER@$HOST:~/$tmp_name"
   scp -P "$PORT" "$APK_PATH" "$USER@$HOST:~/$tmp_name"
 
-  # Send values as env vars and run PowerShell logic remotely.
-  ssh -p "$PORT" "$USER@$HOST" \
-    "set APP_UPDATE_VERSION_CODE=$VERSION_CODE && \
-     set APP_UPDATE_VERSION_NAME=$VERSION_NAME && \
-     set APP_UPDATE_DOWNLOAD_URL=$DOWNLOAD_URL && \
-     set APP_UPDATE_APK_PATH=$APK_ENV_PATH && \
-     set APP_UPDATE_CRITICAL=$CRITICAL && \
-     set APP_UPDATE_CHANGELOG_B64=$CHANGELOG_B64 && \
-     set APP_UPDATE_SHA256=$SHA256 && \
-     set APP_UPDATE_PUBLIC_METADATA=$PUBLIC_METADATA && \
-     set APP_UPDATE_PUBLIC_DOWNLOAD=$PUBLIC_DOWNLOAD && \
-     set DEPLOY_RELEASE_DIR=$REMOTE_RELEASE_DIR && \
-     set DEPLOY_ENV_PATH=$REMOTE_ENV_PATH && \
-     set DEPLOY_VERSIONED_APK=$REMOTE_VERSIONED_APK && \
-     set DEPLOY_TMP_NAME=$tmp_name && \
-     powershell -NoProfile -NonInteractive -Command \"\
-     \\\$ErrorActionPreference = 'Stop'; \
-     function Resolve-DeployPath([string]\\\$p) { if ([System.IO.Path]::IsPathRooted(\\\$p)) { return \\\$p } else { return Join-Path \\\$HOME \\\$p } }; \
-     function Set-EnvValue([string]\\\$file,[string]\\\$key,[string]\\\$value) { \
-       if (Test-Path \\\$file) { \\\$lines = Get-Content \\\$file } else { \\\$lines = @() }; \
-       \\\$pattern = '^' + [regex]::Escape(\\\$key) + '='; \
-       \\\$found = \\\$false; \
-       for (\\\$i=0; \\\$i -lt \\\$lines.Count; \\\$i++) { if (\\\$lines[\\\$i] -match \\\$pattern) { \\\$lines[\\\$i] = \\\"\\\$key=\\\$value\\\"; \\\$found = \\\$true; break } }; \
-       if (-not \\\$found) { \\\$lines += \\\"\\\$key=\\\$value\\\" }; \
-       Set-Content -Path \\\$file -Value \\\$lines -Encoding UTF8; \
-     }; \
-     \\\$releaseDir = Resolve-DeployPath \\\$env:DEPLOY_RELEASE_DIR; \
-     \\\$envPath = Resolve-DeployPath \\\$env:DEPLOY_ENV_PATH; \
-     \\\$versionedApk = Resolve-DeployPath \\\$env:DEPLOY_VERSIONED_APK; \
-     \\\$latestApk = Resolve-DeployPath \\\$env:APP_UPDATE_APK_PATH; \
-     \\\$tmpUploaded = Join-Path \\\$HOME \\\$env:DEPLOY_TMP_NAME; \
-     New-Item -ItemType Directory -Path \\\$releaseDir -Force | Out-Null; \
-     New-Item -ItemType Directory -Path (Split-Path -Parent \\\$versionedApk) -Force | Out-Null; \
-     New-Item -ItemType Directory -Path (Split-Path -Parent \\\$latestApk) -Force | Out-Null; \
-     Move-Item -Path \\\$tmpUploaded -Destination \\\$versionedApk -Force; \
-     Copy-Item -Path \\\$versionedApk -Destination \\\$latestApk -Force; \
-     New-Item -ItemType File -Path \\\$envPath -Force | Out-Null; \
-     \\\$changelog = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(\\\$env:APP_UPDATE_CHANGELOG_B64)); \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_VERSION_CODE' \\\$env:APP_UPDATE_VERSION_CODE; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_VERSION_NAME' \\\$env:APP_UPDATE_VERSION_NAME; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_DOWNLOAD_URL' \\\$env:APP_UPDATE_DOWNLOAD_URL; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_APK_PATH' \\\$env:APP_UPDATE_APK_PATH; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_CRITICAL' \\\$env:APP_UPDATE_CRITICAL; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_CHANGELOG' \\\$changelog; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_SHA256' \\\$env:APP_UPDATE_SHA256; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_PUBLIC_METADATA' \\\$env:APP_UPDATE_PUBLIC_METADATA; \
-     Set-EnvValue \\\$envPath 'APP_UPDATE_PUBLIC_DOWNLOAD' \\\$env:APP_UPDATE_PUBLIC_DOWNLOAD; \
-     \""
+  # Quote a value for safe embedding in a PowerShell single-quoted string.
+  ps_quote() { printf "'%s'" "$(printf '%s' "${1:-}" | sed "s/'/''/g")"; }
+
+  # Base64(UTF-16LE) for `powershell -EncodedCommand`. Encoding the whole script
+  # avoids every quoting pitfall of the bash -> ssh -> cmd.exe -> powershell chain;
+  # the command line that reaches the remote host is plain base64.
+  utf16le_b64() {
+    if command -v iconv > /dev/null 2>&1; then
+      iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n'
+    elif command -v python3 > /dev/null 2>&1; then
+      python3 -c 'import sys,base64; sys.stdout.write(base64.b64encode(sys.stdin.buffer.read().decode("utf-8").encode("utf-16-le")).decode())'
+    else
+      echo "Need iconv or python3 to encode the remote PowerShell command." >&2
+      exit 1
+    fi
+  }
+
+  # Inputs are assigned to PowerShell variables up front. Names must not collide
+  # case-insensitively with the resolved variables below - PowerShell treats
+  # $LatestApk and $latestApk as the same variable.
+  ps_values="$(printf '%s\n' \
+    "\$ReleaseDirIn   = $(ps_quote "$REMOTE_RELEASE_DIR")" \
+    "\$EnvPathIn      = $(ps_quote "$REMOTE_ENV_PATH")" \
+    "\$VersionedApkIn = $(ps_quote "$REMOTE_VERSIONED_APK")" \
+    "\$LatestApkIn    = $(ps_quote "$APK_ENV_PATH")" \
+    "\$TmpNameIn      = $(ps_quote "$tmp_name")" \
+    "\$VersionCode    = $(ps_quote "$VERSION_CODE")" \
+    "\$VersionName    = $(ps_quote "$VERSION_NAME")" \
+    "\$DownloadUrl    = $(ps_quote "$DOWNLOAD_URL")" \
+    "\$Critical       = $(ps_quote "$CRITICAL")" \
+    "\$ChangelogB64   = $(ps_quote "$CHANGELOG_B64")" \
+    "\$Sha256         = $(ps_quote "$SHA256")" \
+    "\$PublicMetadata = $(ps_quote "$PUBLIC_METADATA")" \
+    "\$PublicDownload = $(ps_quote "$PUBLIC_DOWNLOAD")")"
+
+  ps_logic="$(cat <<'PSLOGIC'
+$ErrorActionPreference = 'Stop'
+
+function Resolve-DeployPath([string]$p) {
+  if ([System.IO.Path]::IsPathRooted($p)) { return $p }
+  return (Join-Path $HOME $p)
+}
+
+function Set-EnvValue([string]$file, [string]$key, [string]$value) {
+  if (Test-Path $file) { $lines = @(Get-Content -Path $file) } else { $lines = @() }
+  $pattern = '^' + [regex]::Escape($key) + '='
+  $found = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match $pattern) { $lines[$i] = "$key=$value"; $found = $true; break }
+  }
+  if (-not $found) { $lines += "$key=$value" }
+  # LF endings, no BOM - keeps the file readable by dotenv-style parsers.
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($file, (($lines -join "`n") + "`n"), $utf8NoBom)
+}
+
+$releaseDir   = Resolve-DeployPath $ReleaseDirIn
+$envPath      = Resolve-DeployPath $EnvPathIn
+$versionedApk = Resolve-DeployPath $VersionedApkIn
+$latestApk    = Resolve-DeployPath $LatestApkIn
+$tmpUploaded  = Join-Path $HOME $TmpNameIn
+
+New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+New-Item -ItemType Directory -Path (Split-Path -Parent $versionedApk) -Force | Out-Null
+New-Item -ItemType Directory -Path (Split-Path -Parent $latestApk) -Force | Out-Null
+New-Item -ItemType Directory -Path (Split-Path -Parent $envPath) -Force | Out-Null
+
+Move-Item -Path $tmpUploaded -Destination $versionedApk -Force
+Copy-Item -Path $versionedApk -Destination $latestApk -Force
+
+# Create the .env only when absent. New-Item -Force on an existing file would
+# truncate it, discarding every unrelated setting the server needs.
+if (-not (Test-Path $envPath)) { New-Item -ItemType File -Path $envPath | Out-Null }
+
+$changelog = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($ChangelogB64))
+
+Set-EnvValue $envPath 'APP_UPDATE_VERSION_CODE'    $VersionCode
+Set-EnvValue $envPath 'APP_UPDATE_VERSION_NAME'    $VersionName
+Set-EnvValue $envPath 'APP_UPDATE_DOWNLOAD_URL'    $DownloadUrl
+Set-EnvValue $envPath 'APP_UPDATE_APK_PATH'        $LatestApkIn
+Set-EnvValue $envPath 'APP_UPDATE_CRITICAL'        $Critical
+Set-EnvValue $envPath 'APP_UPDATE_CHANGELOG'       $changelog
+Set-EnvValue $envPath 'APP_UPDATE_SHA256'          $Sha256
+Set-EnvValue $envPath 'APP_UPDATE_PUBLIC_METADATA' $PublicMetadata
+Set-EnvValue $envPath 'APP_UPDATE_PUBLIC_DOWNLOAD' $PublicDownload
+
+Write-Output "Remote publish complete: $versionedApk"
+PSLOGIC
+)"
+
+  ps_b64="$(printf '%s\n%s\n' "$ps_values" "$ps_logic" | utf16le_b64)"
+  ssh -p "$PORT" "$USER@$HOST" "powershell -NoProfile -NonInteractive -EncodedCommand $ps_b64"
 fi
 
 if [[ -n "$RESTART_CMD" ]]; then

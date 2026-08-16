@@ -288,8 +288,27 @@ Write-Output "Remote publish complete: $versionedApk"
 PSLOGIC
 )"
 
-  ps_b64="$(printf '%s\n%s\n' "$ps_values" "$ps_logic" | utf16le_b64)"
-  ssh -p "$PORT" "$USER@$HOST" "powershell -NoProfile -NonInteractive -EncodedCommand $ps_b64"
+  # cmd.exe caps a command line at ~8191 characters and the encoded script is
+  # larger than that, so upload it and keep the command line to a bootstrap that
+  # just runs and deletes it. A BOM is deliberate here: PowerShell 5.1 reads a
+  # .ps1 without one as ANSI rather than UTF-8.
+  ps_local="$(mktemp)"
+  {
+    printf '\xEF\xBB\xBF'
+    printf '%s\n%s\n' "$ps_values" "$ps_logic"
+  } > "$ps_local"
+  remote_ps="lexicon-publish-${VERSION_CODE}-$$.ps1"
+  scp -P "$PORT" "$ps_local" "$USER@$HOST:~/$remote_ps"
+  rm -f "$ps_local"
+
+  ps_bootstrap="$(printf '%s\n' \
+    "\$ErrorActionPreference = 'Stop'" \
+    "\$s = Join-Path \$HOME '$remote_ps'" \
+    "try { & \$s } finally { Remove-Item -LiteralPath \$s -Force -ErrorAction SilentlyContinue }")"
+  ps_b64="$(printf '%s\n' "$ps_bootstrap" | utf16le_b64)"
+
+  ssh -p "$PORT" "$USER@$HOST" \
+    "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $ps_b64"
 fi
 
 if [[ -n "$RESTART_CMD" ]]; then

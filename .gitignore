@@ -7,13 +7,18 @@ npm-debug.log*
 yarn-error.log*
 
 # Android build output
+/.gradle/
+/build/
+/app/build/
+/app/release/
+/captures/
+.cxx/
 /android/build/
 /android/app/build/
 /android/.gradle/
 /android/local.properties
 /android/.idea/
 /android/app/release/
-/app/build/
 *.apk
 *.aab
 *.keystore

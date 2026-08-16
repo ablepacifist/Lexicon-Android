@@ -25,13 +25,20 @@ on:
           - "false"
           - "true"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-android-update
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       DEPLOY_USE_CLOUDFLARE: ${{ secrets.DEPLOY_USE_CLOUDFLARE }}
-      DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
+      CF_PROXY_PORT: "52222"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,89 +48,186 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
 
       - name: Write release keystore
         env:
           APP_RELEASE_KEYSTORE_BASE64: ${{ secrets.APP_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          mkdir -p ~/.keystore
-          printf '%s' "$APP_RELEASE_KEYSTORE_BASE64" | base64 -d > ~/.keystore/lexicon-release.jks
+          set -euo pipefail
+          if [[ -z "${APP_RELEASE_KEYSTORE_BASE64}" ]]; then
+            echo "::error::APP_RELEASE_KEYSTORE_BASE64 secret is empty."
+            exit 1
+          fi
+          mkdir -p "$HOME/.keystore"
+          printf '%s' "$APP_RELEASE_KEYSTORE_BASE64" \
+            | tr -d '[:space:]' \
+            | base64 -d > "$HOME/.keystore/lexicon-release.jks"
+          chmod 600 "$HOME/.keystore/lexicon-release.jks"
+          if [[ ! -s "$HOME/.keystore/lexicon-release.jks" ]]; then
+            echo "::error::Decoded keystore is empty - check the base64 secret."
+            exit 1
+          fi
 
       - name: Configure release signing
+        env:
+          APP_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.APP_RELEASE_KEYSTORE_PASSWORD }}
+          APP_RELEASE_KEY_ALIAS: ${{ secrets.APP_RELEASE_KEY_ALIAS }}
+          APP_RELEASE_KEY_PASSWORD: ${{ secrets.APP_RELEASE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           {
             echo "APP_RELEASE_KEYSTORE_FILE=$HOME/.keystore/lexicon-release.jks"
-            echo "APP_RELEASE_KEYSTORE_PASSWORD=${{ secrets.APP_RELEASE_KEYSTORE_PASSWORD }}"
-            echo "APP_RELEASE_KEY_ALIAS=${{ secrets.APP_RELEASE_KEY_ALIAS }}"
-            echo "APP_RELEASE_KEY_PASSWORD=${{ secrets.APP_RELEASE_KEY_PASSWORD }}"
+            echo "APP_RELEASE_KEYSTORE_PASSWORD=$APP_RELEASE_KEYSTORE_PASSWORD"
+            echo "APP_RELEASE_KEY_ALIAS=$APP_RELEASE_KEY_ALIAS"
+            echo "APP_RELEASE_KEY_PASSWORD=$APP_RELEASE_KEY_PASSWORD"
             echo "APP_RELEASE_KEYSTORE_TYPE=JKS"
           } >> "$GITHUB_ENV"
 
-      - name: Build release APK (bash wrapper v2)
+      - name: Build release APK
         run: |
-          echo "WORKFLOW_MARKER=build-step-bash-wrapper-v2"
-          bash ./gradlew assembleRelease
+          set -euo pipefail
+          bash ./gradlew --no-daemon assembleRelease
+
+      - name: Locate release APK
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -f "$APK" ]]; then
+            echo "::error::Release APK not found at $APK"
+            find app/build/outputs -name '*.apk' -print || true
+            exit 1
+          fi
+          echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
+          echo "Built $APK ($(stat -c %s "$APK") bytes)"
 
       - name: Prepare SSH key
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          python3 - <<'PY'
-import os
-from pathlib import Path
+          set -euo pipefail
+          if [[ -z "${DEPLOY_SSH_KEY}" ]]; then
+            echo "::error::DEPLOY_SSH_KEY secret is empty."
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
 
-key = os.environ["DEPLOY_SSH_KEY"]
-key = key.replace("\r", "").strip()
-if key.startswith('"') and key.endswith('"'):
-    key = key[1:-1]
-key = key.replace("\\n", "\n")
-Path.home().joinpath(".ssh", "id_ed25519").write_text(key + "\n", encoding="utf-8", newline="\n")
-PY
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
+          # Normalize common secret-pasting damage:
+          #   - CRLF line endings
+          #   - the whole key wrapped in double quotes
+          #   - literal \n sequences instead of real newlines
+          #   - stray blank lines
+          #   - a missing newline after the final -----END----- line
+          # The closing awk drops blank lines and guarantees the trailing
+          # newline that OpenSSH requires on the last line.
+          printf '%s' "$DEPLOY_SSH_KEY" \
+            | tr -d '\r' \
+            | sed -e 's/\\n/\n/g' \
+            | sed -e 's/^"//' -e 's/"$//' \
+            | awk 'NF { print }' \
+            > "$HOME/.ssh/id_deploy"
+          chmod 600 "$HOME/.ssh/id_deploy"
+
+          if ! ssh-keygen -y -f "$HOME/.ssh/id_deploy" > /dev/null 2>&1; then
+            echo "::error::DEPLOY_SSH_KEY is not a valid OpenSSH private key after normalization."
+            exit 1
+          fi
+
+          printf '%s\n' \
+            'Host *' \
+            '  IdentityFile ~/.ssh/id_deploy' \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking yes' \
+            '  UserKnownHostsFile ~/.ssh/known_hosts' \
+            '  ServerAliveInterval 30' \
+            '  ServerAliveCountMax 6' \
+            > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
+          touch "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Install cloudflared (for tunnel SSH)
         if: ${{ env.DEPLOY_USE_CLOUDFLARE == 'true' }}
         run: |
-          curl -fsSL -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared.deb
+          set -euo pipefail
+          curl -fsSL -o /tmp/cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i /tmp/cloudflared.deb
+          cloudflared --version
 
       - name: Start Cloudflare SSH proxy
         if: ${{ env.DEPLOY_USE_CLOUDFLARE == 'true' }}
         env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          # cloudflared reads the service token from the environment, which keeps
+          # it off the process command line.
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
+          set -euo pipefail
+          if [[ -z "${DEPLOY_HOST}" ]]; then
+            echo "::error::DEPLOY_HOST secret is empty."
+            exit 1
+          fi
           nohup cloudflared access tcp \
-            --hostname "$DEPLOY_HOST_RAW" \
-            --url 127.0.0.1:52222 \
-            --service-token-id "$CF_ACCESS_CLIENT_ID" \
-            --service-token-secret "$CF_ACCESS_CLIENT_SECRET" \
+            --hostname "$DEPLOY_HOST" \
+            --url "127.0.0.1:${CF_PROXY_PORT}" \
             > /tmp/cloudflared-deploy.log 2>&1 &
-          sleep 3
+          echo $! > /tmp/cloudflared-deploy.pid
 
-      - name: Add known host
+          for _ in $(seq 1 30); do
+            if timeout 2 bash -c "</dev/tcp/127.0.0.1/${CF_PROXY_PORT}" 2>/dev/null; then
+              echo "Cloudflare proxy listening on 127.0.0.1:${CF_PROXY_PORT}"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Cloudflare proxy did not come up on 127.0.0.1:${CF_PROXY_PORT}"
+          cat /tmp/cloudflared-deploy.log || true
+          exit 1
+
+      - name: Resolve deploy target
         env:
-          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
+          set -euo pipefail
           if [[ "${DEPLOY_USE_CLOUDFLARE}" == "true" ]]; then
             TARGET_HOST="127.0.0.1"
-            TARGET_PORT="52222"
+            TARGET_PORT="${CF_PROXY_PORT}"
           else
-            TARGET_HOST="${DEPLOY_HOST_RAW}"
-            TARGET_PORT="${DEPLOY_PORT_RAW:-22}"
+            TARGET_HOST="${DEPLOY_HOST}"
+            TARGET_PORT="${DEPLOY_PORT:-22}"
           fi
-          ssh-keyscan -p "$TARGET_PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts
+          if [[ -z "$TARGET_HOST" ]]; then
+            echo "::error::DEPLOY_HOST secret is empty."
+            exit 1
+          fi
+          {
+            echo "TARGET_HOST=$TARGET_HOST"
+            echo "TARGET_PORT=$TARGET_PORT"
+          } >> "$GITHUB_ENV"
+
+      - name: Add known host
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 5); do
+            if ssh-keyscan -T 10 -p "$TARGET_PORT" "$TARGET_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null \
+               && [[ -s "$HOME/.ssh/known_hosts" ]]; then
+              echo "Host key collected on attempt $attempt"
+              exit 0
+            fi
+            echo "ssh-keyscan attempt $attempt produced no host key; retrying..."
+            sleep 3
+          done
+          echo "::error::Could not collect a host key from $TARGET_HOST:$TARGET_PORT"
+          exit 1
 
       - name: Publish APK and metadata
         env:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_TARGET_OS: ${{ secrets.DEPLOY_TARGET_OS }}
           DEPLOY_RELEASE_DIR: ${{ secrets.DEPLOY_RELEASE_DIR }}
           DEPLOY_ENV_PATH: ${{ secrets.DEPLOY_ENV_PATH }}
@@ -131,22 +235,38 @@ PY
           APP_UPDATE_DOWNLOAD_URL: ${{ secrets.APP_UPDATE_DOWNLOAD_URL }}
           APP_UPDATE_PUBLIC_METADATA: ${{ secrets.APP_UPDATE_PUBLIC_METADATA }}
           APP_UPDATE_PUBLIC_DOWNLOAD: ${{ secrets.APP_UPDATE_PUBLIC_DOWNLOAD }}
+          # Workflow inputs go through the environment so that values containing
+          # quotes or backticks cannot be injected into the shell command.
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          CHANGELOG: ${{ inputs.changelog }}
+          CRITICAL: ${{ inputs.critical }}
         run: |
-          if [[ "${DEPLOY_USE_CLOUDFLARE}" == "true" ]]; then
-            export DEPLOY_HOST="127.0.0.1"
-            export DEPLOY_PORT="52222"
-          else
-            export DEPLOY_HOST="${DEPLOY_HOST_RAW}"
-            export DEPLOY_PORT="${DEPLOY_PORT_RAW:-22}"
+          set -euo pipefail
+          if [[ -z "${DEPLOY_USER}" ]]; then
+            echo "::error::DEPLOY_USER secret is empty."
+            exit 1
           fi
 
+          export DEPLOY_HOST="$TARGET_HOST"
+          export DEPLOY_PORT="$TARGET_PORT"
+
           bash scripts/publish-android-update.sh \
-            --apk app/build/outputs/apk/release/app-release.apk \
-            --version-code "${{ inputs.version_code }}" \
-            --version-name "${{ inputs.version_name }}" \
-            --changelog "${{ inputs.changelog }}" \
-            --critical "${{ inputs.critical }}" \
+            --apk "$RELEASE_APK" \
+            --version-code "$VERSION_CODE" \
+            --version-name "$VERSION_NAME" \
+            --changelog "$CHANGELOG" \
+            --critical "$CRITICAL" \
             --target-os "${DEPLOY_TARGET_OS:-windows}" \
             --download-url "${APP_UPDATE_DOWNLOAD_URL:-https://api.alex-dyakin.com/api/app/download/latest}" \
             --public-metadata "${APP_UPDATE_PUBLIC_METADATA:-false}" \
             --public-download "${APP_UPDATE_PUBLIC_DOWNLOAD:-false}"
+
+      - name: Tear down
+        if: ${{ always() }}
+        run: |
+          set -uo pipefail
+          if [[ -f /tmp/cloudflared-deploy.pid ]]; then
+            kill "$(cat /tmp/cloudflared-deploy.pid)" 2>/dev/null || true
+          fi
+          rm -f "$HOME/.ssh/id_deploy" "$HOME/.keystore/lexicon-release.jks"

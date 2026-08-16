@@ -28,6 +28,10 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_USE_CLOUDFLARE: ${{ secrets.DEPLOY_USE_CLOUDFLARE }}
+      DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,37 +72,45 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
 
       - name: Install cloudflared (for tunnel SSH)
-        if: ${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' }}
+        if: ${{ env.DEPLOY_USE_CLOUDFLARE == 'true' }}
         run: |
           curl -fsSL -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
 
       - name: Start Cloudflare SSH proxy
-        if: ${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' }}
+        if: ${{ env.DEPLOY_USE_CLOUDFLARE == 'true' }}
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
         run: |
           nohup cloudflared access tcp \
-            --hostname "$DEPLOY_HOST" \
-            --url 127.0.0.1:2222 \
+            --hostname "$DEPLOY_HOST_RAW" \
+            --url 127.0.0.1:52222 \
             --service-token-id "$CF_ACCESS_CLIENT_ID" \
             --service-token-secret "$CF_ACCESS_CLIENT_SECRET" \
             > /tmp/cloudflared-deploy.log 2>&1 &
           sleep 3
 
       - name: Add known host
+        env:
+          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
         run: |
-          TARGET_HOST="${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' && '127.0.0.1' || secrets.DEPLOY_HOST }}"
-          TARGET_PORT="${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' && '2222' || (secrets.DEPLOY_PORT || '22') }}"
+          if [[ "${DEPLOY_USE_CLOUDFLARE}" == "true" ]]; then
+            TARGET_HOST="127.0.0.1"
+            TARGET_PORT="52222"
+          else
+            TARGET_HOST="${DEPLOY_HOST_RAW}"
+            TARGET_PORT="${DEPLOY_PORT_RAW:-22}"
+          fi
           ssh-keyscan -p "$TARGET_PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts
 
       - name: Publish APK and metadata
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' && '127.0.0.1' || secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_USE_CLOUDFLARE == 'true' && '2222' || secrets.DEPLOY_PORT }}
+          DEPLOY_HOST_RAW: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT_RAW: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_TARGET_OS: ${{ secrets.DEPLOY_TARGET_OS }}
           DEPLOY_RELEASE_DIR: ${{ secrets.DEPLOY_RELEASE_DIR }}
           DEPLOY_ENV_PATH: ${{ secrets.DEPLOY_ENV_PATH }}
@@ -107,6 +119,14 @@ jobs:
           APP_UPDATE_PUBLIC_METADATA: ${{ secrets.APP_UPDATE_PUBLIC_METADATA }}
           APP_UPDATE_PUBLIC_DOWNLOAD: ${{ secrets.APP_UPDATE_PUBLIC_DOWNLOAD }}
         run: |
+          if [[ "${DEPLOY_USE_CLOUDFLARE}" == "true" ]]; then
+            export DEPLOY_HOST="127.0.0.1"
+            export DEPLOY_PORT="52222"
+          else
+            export DEPLOY_HOST="${DEPLOY_HOST_RAW}"
+            export DEPLOY_PORT="${DEPLOY_PORT_RAW:-22}"
+          fi
+
           chmod +x scripts/publish-android-update.sh
           scripts/publish-android-update.sh \
             --apk app/build/outputs/apk/release/app-release.apk \

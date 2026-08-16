@@ -61,8 +61,7 @@ jobs:
 
       - name: Build release APK
         run: |
-          chmod +x ./gradlew
-          ./gradlew assembleRelease
+          bash ./gradlew assembleRelease
 
       - name: Prepare SSH key
         env:
@@ -129,8 +128,7 @@ jobs:
             export DEPLOY_PORT="${DEPLOY_PORT_RAW:-22}"
           fi
 
-          chmod +x scripts/publish-android-update.sh
-          scripts/publish-android-update.sh \
+          bash scripts/publish-android-update.sh \
             --apk app/build/outputs/apk/release/app-release.apk \
             --version-code "${{ inputs.version_code }}" \
             --version-name "${{ inputs.version_name }}" \

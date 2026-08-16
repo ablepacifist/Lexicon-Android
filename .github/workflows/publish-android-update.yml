@@ -59,8 +59,9 @@ jobs:
             echo "APP_RELEASE_KEYSTORE_TYPE=JKS"
           } >> "$GITHUB_ENV"
 
-      - name: Build release APK
+      - name: Build release APK (bash wrapper v2)
         run: |
+          echo "WORKFLOW_MARKER=build-step-bash-wrapper-v2"
           bash ./gradlew assembleRelease
 
       - name: Prepare SSH key

@@ -1,111 +1,108 @@
-# LexiconAndroid
+# Lexicon — Android
 
-Capacitor shell that packages **Lexicon** and the **Mumble voice/text chat client**
-into an installable Android APK, talking to the same backend servers the website
-already uses.
+Native Android app (Kotlin + Jetpack Compose + AndroidX) for the Lexicon stack.
+It talks directly to the existing REST backends — there is no WebView and no
+bundled web build. The website is a **reference for behaviour only**; every
+screen here is native.
 
-This repo contains **no application source code**. It wraps the *build output* of
-two other repos, which remain the source of truth:
+## Why it isn't a WebView any more
 
-| Bundled as   | Comes from                                       | Repo             |
-|--------------|--------------------------------------------------|------------------|
-| `www/`       | `Lexicon/build/*`                                | `Lexicon` (dev)  |
-| `www/voice/` | `discord-clone/myMumble/mumble-bridge/public/*`  | `discord-clone`  |
+The first version wrapped the website in Capacitor. That shell is gone. It could
+not do the things that actually matter on a phone:
 
-All real code changes belong in those repos, not here.
+- a backgrounded WebView is suspended, so voice dropped on screen-lock and
+  audio stopped when you switched apps
+- runtime permissions (location for the Pokémon map) were awkward at best
+- `window.confirm`/`alert` dialogs and cookie-based sessions behaved differently
+  inside the WebView than in a browser
 
-## Layout
+## Stack
 
-```
-LexiconAndroid/
-├── android/              Capacitor-generated Gradle project — produces the APK
-├── capacitor.config.ts   appId, appName, webDir: "www"
-├── package.json          @capacitor/core + cli + android
-├── scripts/build.ps1     builds Lexicon, assembles www/, runs cap sync
-└── www/                  generated, gitignored — never edit by hand
-```
+| Concern | Choice |
+|---|---|
+| UI | Jetpack Compose, Material 3 |
+| Navigation | `androidx.navigation:navigation-compose` |
+| HTTP | OkHttp + Retrofit |
+| JSON | kotlinx.serialization |
+| Images | Coil |
+| Credentials | `androidx.security:security-crypto` (`EncryptedSharedPreferences`) |
+| Min / target SDK | 24 / 36 |
 
-## Prerequisites
+## Auth
 
-- Node 18+
-- **JDK 21 or newer.** Capacitor's `capacitor-android` module compiles at source
-  release 21; a JDK 17 toolchain fails with `invalid source release: 21`.
-  `build.ps1 -Apk` finds a suitable JDK automatically if `JAVA_HOME` points at
-  an older one.
-- The **Android SDK** with `ANDROID_HOME` set — platform 36 and build-tools 36
-  (matching `android/variables.gradle`). Android Studio or the SDK
-  command-line tools both work.
-- Sibling checkouts of `Lexicon` and `discord-clone`, i.e. this repo sits inside
-  `full-back-end-server/` next to them. Override with `-LexiconPath` /
-  `-BridgePublicPath` if your layout differs.
+One login covers everything, using the bearer token LexiconServer issues:
+
+1. `POST api/auth/login` with `platform: "mobile"` returns a `mobileToken`.
+2. The token is stored **encrypted** via `EncryptedSharedPreferences` — not in
+   plain storage the way the old WebView shell kept it.
+3. `AuthInterceptor` attaches `Authorization: Bearer <token>` to the hosts that
+   accept it, and stores any rotated token returned on `X-Mobile-Token`.
+
+The token goes to Lexicon (which issues and rotates it) and Pokémon (which
+validates it read-only against the shared database). **Alchemy is deliberately
+excluded** — its endpoints take an explicit `playerId` and never read a session,
+so the token means nothing there.
 
 ## Build
 
 ```powershell
-./scripts/build.ps1              # build Lexicon, assemble www/, cap sync
-./scripts/build.ps1 -SkipWebBuild  # reuse the existing Lexicon/build
-./scripts/build.ps1 -Apk         # ...and assemble a debug APK
+./gradlew assembleDebug          # APK -> app/build/outputs/apk/debug/
+./gradlew installDebug           # build + install on a connected device
 ```
 
-The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`.
-Install with `adb install -r <path>`.
+Requires the Android SDK (platform 36, build-tools 36) with `ANDROID_HOME` set or
+`local.properties` pointing at it.
 
-## Android Studio
+### JDK: use 21, not 25
 
-Open the **`android/`** folder as the project — not the repo root. `npx cap open android`
-does this for you.
+Build on **JDK 21**. Android Gradle Plugin 8.13 rejects JDK 25 and fails with a
+bare, unexplained `25.0.2`:
 
-First-time setup:
+```
+* What went wrong:
+25.0.2
+```
 
-- **SDK location** — Settings → Languages & Frameworks → Android SDK → point it at
-  your existing SDK rather than letting Studio download a second copy.
-  `android/local.properties` already records the path (gitignored, machine-specific).
-- **Gradle JDK** — Settings → Build, Execution, Deployment → Build Tools → Gradle.
-  Studio's bundled JBR is new enough; any JDK 21+ works. JDK 17 does **not**
-  (`invalid source release: 21`).
+This matters because **Android Studio bundles JBR 25 and uses it by default**, so
+the IDE fails while the command line succeeds. `.idea/gradle.xml` pins the Gradle
+JVM to `C:/Users/HP/Documents/jdk-21`; if Studio still picks its own, set it at
+*Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK*.
 
-Then: **Run ▶** builds, installs and launches on a connected device or emulator, and
-**Build → Build Bundle(s)/APK(s) → Build APK(s)** produces the same debug APK as the
-CLI. `gradlew` lives at `android/gradlew` — Studio uses that same wrapper, so CLI and
-IDE builds are identical.
+JDK 17 does not work either — Compose and AGP need 21.
 
-> **The gotcha:** Studio only builds the *native* project. It does **not** rebuild
-> Lexicon or re-copy the voice client, so after changing anything in `Lexicon/` or
-> `mumble-bridge/public/` you must re-run `./scripts/build.ps1` (or at minimum
-> `npx cap sync android`) before pressing Run — otherwise you are shipping stale
-> assets and will be debugging code that is not in the APK.
+### local.properties
 
-## Release builds
+Write the SDK path with **forward slashes**. In a Java `.properties` file a
+backslash is an escape character, so `sdk.dir=C:\Users\HP\...` silently parses as
+`C:UsersHP...` and the build dies with "The filename, directory name, or volume
+label syntax is incorrect".
 
-The debug APK is signed with the shared debug key and ships JS source maps
-(~6 MB). For a real release, generate a keystore, configure `signingConfigs` in
-`android/app/build.gradle`, build the web assets with `GENERATE_SOURCEMAP=false`,
-and use `./gradlew assembleRelease`.
+In Android Studio, open the **repository root** — it is a normal Gradle project
+now, not a Capacitor subfolder.
 
-## How the native build differs from the website
+## Assets
 
-The bundled pages are served from the WebView's own origin (`https://localhost`),
-not from the real domains, so anything derived from `window.location` has to be
-overridden. Each of these is a native-only branch — on the live site they are
-dead code, and the website's behaviour is unchanged.
+Art is pulled from the existing repos and lives in `app/src/main/res/drawable/`:
 
-- **API URLs** — `Lexicon/src/utils/apiUrls.js` normally picks backends by
-  sniffing the hostname, which under Capacitor would resolve to LAN IPs. Native
-  always uses the public `*.alex-dyakin.com` URLs.
-- **Auth** — the session cookie is `SameSite=Lax` and is never sent from the
-  WebView's origin. Login sends `platform: "mobile"`, the backend returns a
-  `mobileToken`, and `Lexicon/src/utils/apiFetch.js` presents it as
-  `Authorization: Bearer <token>` on every Lexicon API request. The token is
-  stored in `localStorage`, so login survives app restarts. Rotated tokens come
-  back on the `X-Mobile-Token` response header.
-- **Voice WebSocket** — `chat.js` derives its socket URL from `window.location`;
-  native hardcodes `wss://voice.alex-dyakin.com`.
-- **Voice asset paths** — the voice client addresses `/css`, `/js`, `/react` from
-  the site root. `build.ps1` rewrites those to relative paths when copying into
-  `www/voice/`, and repoints `/uploads` at the live bridge (which serves them).
-- **Push notifications** — Web Push is skipped on native; it is unreliable in an
-  embedded WebView and native push is deliberately out of scope for v1.
+| Drawable | Source |
+|---|---|
+| `forage`, `brew`, `consume`, `drink` | `Lexicon/src/assets/images/` |
+| `bg_login`, `bg_dashboard`, `bg_lexicon_room`, `banner` | `Lexicon/src/assets/images/` |
+| `logo_lexicon`, `logo_runed` | `Lexicon/src/assets/images/` |
 
-## Not included in v1
+Still untapped, and the reason the Pokémon screens should be fun to build:
+`pokemon/pogo_assets/` (~18.5k images, 3D assets and sounds) and
+`pokemon/moreAssets/pokesprite/` (~11k sprites).
 
-Offline/local caching, performance tuning, and native push (FCM).
+## Status
+
+**Done**
+- Project scaffold, theme (palette drawn from the Lexicon room art), navigation
+- Encrypted token storage, auth interceptor with rotation handling
+- Login screen — Ken Burns background, animated logo entry, animated errors
+- Alchemy — inventory list, forage with a three-phase animation, consume
+
+**Next**
+- Pokémon: map + real location (the manifest permissions are already declared)
+- Lexicon media: Media3 for real background playback and lock-screen controls
+- Voice: native Mumble audio — the largest piece by far

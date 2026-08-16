@@ -18,5 +18,9 @@ yarn-error.log*
 *.keystore
 !debug.keystore
 
+# Android Studio / IntelliJ project state
+.idea/
+*.iml
+local.properties
 .DS_Store
 Thumbs.db

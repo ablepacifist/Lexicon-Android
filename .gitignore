@@ -13,6 +13,7 @@ yarn-error.log*
 /android/local.properties
 /android/.idea/
 /android/app/release/
+/app/build/
 *.apk
 *.aab
 *.keystore

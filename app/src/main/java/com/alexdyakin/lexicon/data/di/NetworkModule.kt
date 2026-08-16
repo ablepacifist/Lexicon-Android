@@ -14,6 +14,7 @@ import com.alexdyakin.lexicon.data.api.ProfileApi
 import com.alexdyakin.lexicon.data.api.LiveStreamApi
 import com.alexdyakin.lexicon.data.api.PokemonApi
 import com.alexdyakin.lexicon.data.api.NotificationApi
+import com.alexdyakin.lexicon.data.api.AppUpdateApi
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
@@ -160,6 +161,9 @@ object NetworkModule {
 
     @Provides @Singleton
     fun notificationApi(@LexiconRetrofit r: Retrofit): NotificationApi = r.create(NotificationApi::class.java)
+
+    @Provides @Singleton
+    fun appUpdateApi(@LexiconRetrofit r: Retrofit): AppUpdateApi = r.create(AppUpdateApi::class.java)
 
     @Provides @Singleton
     fun alchemyApi(@AlchemyRetrofit r: Retrofit): AlchemyApi = r.create(AlchemyApi::class.java)

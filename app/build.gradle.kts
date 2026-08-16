@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,9 +21,40 @@ android {
         versionName = "0.1.0"
     }
 
+    val releaseKeystoreFile = providers.environmentVariable("APP_RELEASE_KEYSTORE_FILE").orNull
+    val releaseKeystorePassword = providers.environmentVariable("APP_RELEASE_KEYSTORE_PASSWORD").orNull
+    val releaseKeyAlias = providers.environmentVariable("APP_RELEASE_KEY_ALIAS").orNull
+    val releaseKeyPassword = providers.environmentVariable("APP_RELEASE_KEY_PASSWORD").orNull
+    val releaseKeystoreType = providers.environmentVariable("APP_RELEASE_KEYSTORE_TYPE").orNull ?: "JKS"
+
+    signingConfigs {
+        create("release") {
+            if (
+                !releaseKeystoreFile.isNullOrBlank() &&
+                !releaseKeystorePassword.isNullOrBlank() &&
+                !releaseKeyAlias.isNullOrBlank() &&
+                !releaseKeyPassword.isNullOrBlank()
+            ) {
+                storeFile = File(releaseKeystoreFile)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                this.storeType = releaseKeystoreType
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (
+                !releaseKeystoreFile.isNullOrBlank() &&
+                !releaseKeystorePassword.isNullOrBlank() &&
+                !releaseKeyAlias.isNullOrBlank() &&
+                !releaseKeyPassword.isNullOrBlank()
+            ) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

@@ -28,6 +28,7 @@ import com.alexdyakin.lexicon.data.Poll
 import com.alexdyakin.lexicon.data.PollDetail
 import com.alexdyakin.lexicon.data.VoteRequest
 import com.alexdyakin.lexicon.data.AddPollOptionRequest
+import com.alexdyakin.lexicon.data.AppVersionInfo
 import com.alexdyakin.lexicon.data.LoginRequest
 import com.alexdyakin.lexicon.data.LoginResponse
 import com.alexdyakin.lexicon.data.LevelUpRequest
@@ -257,6 +258,11 @@ interface ProfileApi {
     @POST("api/avatar/remove") suspend fun removeAvatar(@Body body: RemoveAvatarRequest): AvatarResponse
     @GET("api/notifications/prefs") suspend fun notificationPrefs(@Query("userId") userId: Int): NotificationPrefs
     @PUT("api/notifications/prefs") suspend fun updateNotificationPrefs(@Query("userId") userId: Int, @Body prefs: NotificationPrefs)
+}
+
+interface AppUpdateApi {
+    @GET("api/app/version")
+    suspend fun latestVersion(): AppVersionInfo
 }
 
 interface NotificationApi {

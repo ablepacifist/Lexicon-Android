@@ -25,3 +25,8 @@ yarn-error.log*
 local.properties
 .DS_Store
 Thumbs.db
+
+# secrets
+keystore-base64.txt
+lexicon-release.jks
+.github/workflows/secret.txt

@@ -106,3 +106,7 @@ Still untapped, and the reason the Pokémon screens should be fun to build:
 - Pokémon: map + real location (the manifest permissions are already declared)
 - Lexicon media: Media3 for real background playback and lock-screen controls
 - Voice: native Mumble audio — the largest piece by far
+
+## Updating the APK
+
+The release/update flow is documented in [docs/update-apk.md](docs/update-apk.md). In short: the server uses the shared root `.env` in the full-back-end-server checkout, while GitHub Actions uses secrets only for release signing and deployment.

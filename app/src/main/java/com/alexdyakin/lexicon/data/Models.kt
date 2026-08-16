@@ -93,6 +93,16 @@ data class AvatarResponse(val avatarUrl: String = "", val success: Boolean = tru
 @Serializable
 data class RemoveAvatarRequest(val username: String, val userId: Int)
 
+@Serializable
+data class AppVersionInfo(
+    val versionCode: Long = 0,
+    val versionName: String = "",
+    val downloadUrl: String = "",
+    val critical: Boolean = false,
+    val changelog: String = "",
+    val sha256: String? = null,
+)
+
 // ── Alchemy ──────────────────────────────────────────────────────────────────
 
 @Serializable

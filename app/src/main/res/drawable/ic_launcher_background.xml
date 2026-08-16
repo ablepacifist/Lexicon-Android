@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark ground with a faint ember glow behind the Lexicon cube. Without the
+     lift in the centre the near-black artwork disappears into a flat @color/ink. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="60%p"
+        android:centerX="0.5"
+        android:centerY="0.5"
+        android:startColor="#3A1A14"
+        android:centerColor="#1E1210"
+        android:endColor="#0D0A08" />
+</shape>

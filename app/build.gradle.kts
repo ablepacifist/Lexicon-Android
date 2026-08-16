@@ -9,16 +9,34 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// The google-services plugin hard-fails when google-services.json is absent, which
+// would break every build and CI run for anyone who has not set up Firebase yet.
+// Applying it only when the file is present keeps the app buildable; push simply
+// stays inactive until the file is dropped into app/.
+val hasFirebaseConfig = file("google-services.json").exists()
+if (hasFirebaseConfig) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.alexdyakin.lexicon"
     compileSdk = 36
+
+    // The publish workflow supplies these so the APK identifies itself with the
+    // same version the server advertises. Without that, the in-app updater sees
+    // a "new" version, installs it, still reads the old one, and loops forever.
+    // Local builds fall back to the defaults.
+    val appVersionCode = providers.environmentVariable("APP_VERSION_CODE").orNull
+        ?.trim()?.toIntOrNull() ?: 1
+    val appVersionName = providers.environmentVariable("APP_VERSION_NAME").orNull
+        ?.trim()?.takeIf { it.isNotEmpty() } ?: "0.1.0"
 
     defaultConfig {
         applicationId = "com.alexdyakin.lexicon"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     val releaseKeystoreFile = providers.environmentVariable("APP_RELEASE_KEYSTORE_FILE").orNull
@@ -99,6 +117,11 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
+
+    // Push notifications. Safe to compile without google-services.json - the code
+    // guards on FirebaseApp being initialised before touching any of it.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     // Media3: background playback, lock-screen/Bluetooth controls, seeking
     implementation(libs.androidx.media3.exoplayer)

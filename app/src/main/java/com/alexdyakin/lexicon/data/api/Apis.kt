@@ -58,6 +58,7 @@ import com.alexdyakin.lexicon.data.RegisterResponse
 import com.alexdyakin.lexicon.data.AvatarResponse
 import com.alexdyakin.lexicon.data.RemoveAvatarRequest
 import com.alexdyakin.lexicon.data.AppNotification
+import com.alexdyakin.lexicon.data.DeviceTokenRequest
 import com.alexdyakin.lexicon.data.UnreadNotificationCount
 import com.alexdyakin.lexicon.data.PokemonSpecies
 import com.alexdyakin.lexicon.data.PlayerItem
@@ -77,6 +78,7 @@ import com.alexdyakin.lexicon.data.HealPokemonResult
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.POST
 import retrofit2.http.Multipart
 import retrofit2.http.Part
@@ -269,6 +271,11 @@ interface NotificationApi {
     @GET("api/notifications") suspend fun history(@Query("userId") userId: Int, @Query("limit") limit: Int = 30): List<AppNotification>
     @GET("api/notifications/unread-count") suspend fun unreadCount(@Query("userId") userId: Int): UnreadNotificationCount
     @POST("api/notifications/read-all") suspend fun markAllRead(@Query("userId") userId: Int)
+
+    // Push device registration. Backend stores one row per (userId, token).
+    @POST("api/notifications/device-token") suspend fun registerDeviceToken(@Body body: DeviceTokenRequest)
+    @HTTP(method = "DELETE", path = "api/notifications/device-token", hasBody = true)
+    suspend fun unregisterDeviceToken(@Body body: DeviceTokenRequest)
 }
 
 interface AlchemyApi {

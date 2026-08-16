@@ -1,5 +1,13 @@
 package com.alexdyakin.lexicon.ui.notifications
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,30 +30,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.AppNotification
-import com.alexdyakin.lexicon.data.ApiUrls
-import com.alexdyakin.lexicon.data.ApiResult
-import com.alexdyakin.lexicon.data.TokenStore
-import com.alexdyakin.lexicon.data.api.NotificationApi
-import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.data.di.SseOkHttp
+import com.alexdyakin.lexicon.data.NotificationRepository
 import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 import javax.inject.Inject
 
 data class NotificationsUiState(
@@ -56,62 +51,40 @@ data class NotificationsUiState(
     val message: String? = null,
 )
 
+/**
+ * Thin wrapper over [NotificationRepository]. Every screen that shows notification
+ * state - the home badge included - reads the same singleton feed, so marking
+ * everything read clears the badge everywhere at once.
+ */
 @HiltViewModel
 class NotificationsViewModel @Inject constructor(
-    private val api: NotificationApi,
-    private val tokenStore: TokenStore,
-    @SseOkHttp private val sseClient: OkHttpClient,
-    private val json: Json,
+    private val repository: NotificationRepository,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(NotificationsUiState())
-    val state: StateFlow<NotificationsUiState> = _state.asStateFlow()
+    private val saving = MutableStateFlow(false)
+    private val localMessage = MutableStateFlow<String?>(null)
 
-    private var eventSource: EventSource? = null
+    val state: StateFlow<NotificationsUiState> =
+        combine(repository.feed, saving, localMessage) { feed, isSaving, message ->
+            NotificationsUiState(
+                loading = feed.loading,
+                saving = isSaving,
+                unreadCount = feed.unreadCount,
+                items = feed.items,
+                message = message ?: feed.message,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotificationsUiState())
 
     init {
-        refresh()
-        connectStream()
+        repository.start()
     }
 
-    private fun connectStream() {
-        val request = Request.Builder().url("${ApiUrls.LEXICON}api/notifications/stream?userId=${tokenStore.userId}").build()
-        eventSource = EventSources.createFactory(sseClient).newEventSource(request, object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                when (type) {
-                    "init" -> runCatching { json.parseToJsonElement(data).jsonObject["unreadCount"]?.jsonPrimitive?.content?.toInt() }.getOrNull()?.let { count -> _state.value = _state.value.copy(unreadCount = count) }
-                    "notification" -> runCatching { json.decodeFromString<AppNotification>(data) }.getOrNull()?.let { notification ->
-                        _state.value = _state.value.copy(items = listOf(notification) + _state.value.items.filter { it.id != notification.id }, unreadCount = _state.value.unreadCount + 1)
-                    }
-                }
-            }
-        })
-    }
-
-    fun refresh() = viewModelScope.launch {
-        _state.value = _state.value.copy(loading = true, message = null)
-        val id = tokenStore.userId
-        val history = safeApiCall { api.history(id) }
-        val unread = safeApiCall { api.unreadCount(id) }
-        _state.value = NotificationsUiState(
-            loading = false,
-            items = history.successOrNull.orEmpty(),
-            unreadCount = unread.successOrNull?.count ?: 0,
-            message = (history as? ApiResult.Failure)?.message ?: (unread as? ApiResult.Failure)?.message,
-        )
-    }
+    fun refresh() = repository.refresh()
 
     fun markAllRead() = viewModelScope.launch {
-        _state.value = _state.value.copy(saving = true, message = null)
-        when (val result = safeApiCall { api.markAllRead(tokenStore.userId) }) {
-            is ApiResult.Success -> _state.value = _state.value.copy(saving = false, unreadCount = 0, message = "All notifications marked as read.")
-            is ApiResult.Failure -> _state.value = _state.value.copy(saving = false, message = result.message)
-            ApiResult.Unauthorized -> _state.value = _state.value.copy(saving = false, message = "Sign in again to manage notifications.")
-        }
-    }
-
-    override fun onCleared() {
-        eventSource?.cancel()
-        super.onCleared()
+        saving.value = true
+        localMessage.value = null
+        localMessage.value = repository.markAllRead()
+        saving.value = false
     }
 }
 
@@ -128,14 +101,42 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = 
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        modifier = Modifier.animateContentSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Text("${state.unreadCount} unread", style = MaterialTheme.typography.titleMedium)
-                        Button(onClick = viewModel::markAllRead, enabled = state.unreadCount > 0 && !state.saving) { Text("Mark all as read") }
-                        state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                        // The button collapses away once everything is read rather
+                        // than sitting there greyed out.
+                        AnimatedVisibility(
+                            visible = state.unreadCount > 0,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Button(onClick = viewModel::markAllRead, enabled = !state.saving) {
+                                Text("Mark all as read")
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = state.message != null,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Text(state.message.orEmpty(), color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
                 items(state.items, key = { it.id }) { notification ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            // New arrivals slide down into place instead of popping in.
+                            .animateItem(
+                                placementSpec = tween(300),
+                                fadeInSpec = tween(300),
+                                fadeOutSpec = tween(200),
+                            ),
+                    ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(notification.title.ifBlank { notification.type }, style = MaterialTheme.typography.titleMedium)
                             Text(notification.body)

@@ -100,11 +100,15 @@ fun VideoPlayerScreen(
                     Icon(Icons.Default.Fullscreen, contentDescription = "Enter fullscreen")
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(PaddingValues(horizontal = 24.dp, vertical = 20.dp))) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(PaddingValues(horizontal = 24.dp, vertical = 20.dp)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 Text(
                     state.title.ifBlank { "Untitled video" },
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -112,6 +116,7 @@ fun VideoPlayerScreen(
                     state.subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 Text(

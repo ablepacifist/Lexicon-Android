@@ -85,6 +85,13 @@ data class AppNotification(
 data class UnreadNotificationCount(val count: Int = 0)
 
 @Serializable
+data class DeviceTokenRequest(
+    val userId: Int,
+    val token: String,
+    val platform: String = "android",
+)
+
+@Serializable
 data class LevelUpRequest(val playerId: Int, val secretPassword: String)
 
 @Serializable

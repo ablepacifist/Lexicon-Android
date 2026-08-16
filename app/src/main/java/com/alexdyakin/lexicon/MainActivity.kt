@@ -1,9 +1,22 @@
 package com.alexdyakin.lexicon
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.alexdyakin.lexicon.push.PushTokenRegistrar
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.navigation.compose.NavHost
@@ -39,6 +52,9 @@ import com.alexdyakin.lexicon.ui.theme.LexiconTheme
 import com.alexdyakin.lexicon.ui.voice.VoiceScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+
+/** Screen transition duration. Short enough not to slow navigation down. */
+private const val NAV_ANIM_MS = 260
 
 object Routes {
     const val LOGIN = "login"
@@ -80,16 +96,35 @@ object Routes {
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var tokenStore: TokenStore
+    @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
+
+    // Android 13+ will not show notifications until the user grants this.
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        askForNotificationPermission()
+        // Registering on every launch also repairs a token the backend lost or
+        // that rotated while the app was not running.
+        lifecycleScope.launch { pushTokenRegistrar.syncCurrentToken() }
 
         setContent {
             LexiconTheme {
                 LexiconApp(tokenStore)
             }
         }
+    }
+
+    private fun askForNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 
@@ -106,7 +141,28 @@ private fun LexiconApp(tokenStore: TokenStore) {
         navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
     }
 
-    NavHost(navController = navController, startDestination = start) {
+    // Applied to every destination: forward navigation slides in from the right and
+    // back pops the other way, so the stack has a sense of direction.
+    NavHost(
+        navController = navController,
+        startDestination = start,
+        enterTransition = {
+            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS)) { it / 6 } +
+                fadeIn(animationSpec = tween(NAV_ANIM_MS))
+        },
+        exitTransition = {
+            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS)) { -it / 8 } +
+                fadeOut(animationSpec = tween(NAV_ANIM_MS))
+        },
+        popEnterTransition = {
+            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS)) { -it / 8 } +
+                fadeIn(animationSpec = tween(NAV_ANIM_MS))
+        },
+        popExitTransition = {
+            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS)) { it / 6 } +
+                fadeOut(animationSpec = tween(NAV_ANIM_MS))
+        },
+    ) {
         composable(Routes.LOGIN) {
             LoginScreen(
                 onLoggedIn = {

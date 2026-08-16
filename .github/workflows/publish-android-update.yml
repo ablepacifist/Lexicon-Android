@@ -85,6 +85,11 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build release APK
+        env:
+          # Stamped into the APK manifest so it matches the metadata published
+          # to the server; otherwise the in-app updater re-offers the same build.
+          APP_VERSION_CODE: ${{ inputs.version_code }}
+          APP_VERSION_NAME: ${{ inputs.version_name }}
         run: |
           set -euo pipefail
           bash ./gradlew --no-daemon assembleRelease

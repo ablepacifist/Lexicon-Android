@@ -1,6 +1,15 @@
 package com.alexdyakin.lexicon.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +36,38 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.ui.notifications.NotificationsViewModel
+
+/**
+ * Unread pip for the Alerts action.
+ *
+ * Kept as its own composable because the `actions` slot is a `RowScope`, which makes
+ * a bare `AnimatedVisibility` resolve to the RowScope overload and fail to compile.
+ */
+@Composable
+private fun UnreadBadge(unreadCount: Int) {
+    AnimatedVisibility(
+        visible = unreadCount > 0,
+        enter = scaleIn(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+        exit = scaleOut(tween(160)) + fadeOut(tween(160)),
+    ) {
+        Badge {
+            // The count rolls up or down rather than snapping to the new value.
+            AnimatedContent(
+                targetState = unreadCount.coerceAtMost(99),
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (slideInVertically { it } + fadeIn())
+                            .togetherWith(slideOutVertically { -it } + fadeOut())
+                    } else {
+                        (slideInVertically { -it } + fadeIn())
+                            .togetherWith(slideOutVertically { it } + fadeOut())
+                    }
+                },
+                label = "unreadCount",
+            ) { count -> Text(count.toString()) }
+        }
+    }
+}
 
 data class Destination(
     val key: String,
@@ -97,7 +138,7 @@ fun HomeScreen(
                         titleContentColor = MaterialTheme.colorScheme.primary,
                     ),
                     actions = {
-                        BadgedBox(badge = { if (notificationState.unreadCount > 0) Badge { Text(notificationState.unreadCount.coerceAtMost(99).toString()) } }) {
+                        BadgedBox(badge = { UnreadBadge(notificationState.unreadCount) }) {
                             TextButton(onClick = { onOpen("notifications") }) { Text("Alerts") }
                         }
                         TextButton(onClick = { onOpen("profile") }) { Text("Profile") }

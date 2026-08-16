@@ -104,6 +104,7 @@ jobs:
       - name: Prepare SSH key
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY_PASSPHRASE: ${{ secrets.DEPLOY_SSH_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
           if [[ -z "${DEPLOY_SSH_KEY}" ]]; then
@@ -112,27 +113,89 @@ jobs:
           fi
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
+          KEY_FILE="$HOME/.ssh/id_deploy"
 
           # Normalize common secret-pasting damage:
           #   - CRLF line endings
-          #   - the whole key wrapped in double quotes
+          #   - a UTF-8 or UTF-16 BOM (PowerShell redirects add one by default)
+          #   - UTF-16 encoding (NUL padding between ASCII bytes)
+          #   - leading indentation or trailing whitespace on each line
+          #   - the whole key wrapped in double or single quotes
           #   - literal \n sequences instead of real newlines
           #   - stray blank lines
           #   - a missing newline after the final -----END----- line
           # The closing awk drops blank lines and guarantees the trailing
           # newline that OpenSSH requires on the last line.
-          printf '%s' "$DEPLOY_SSH_KEY" \
-            | tr -d '\r' \
-            | sed -e 's/\\n/\n/g' \
-            | sed -e 's/^"//' -e 's/"$//' \
-            | awk 'NF { print }' \
-            > "$HOME/.ssh/id_deploy"
-          chmod 600 "$HOME/.ssh/id_deploy"
+          normalize() {
+            tr -d '\r\0' \
+              | sed -e '1s/^\xEF\xBB\xBF//' -e '1s/^\xFF\xFE//' -e '1s/^\xFE\xFF//' \
+              | sed -e 's/\\n/\n/g' \
+              | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              | sed -e "s/^[\"']//" -e "s/[\"']\$//" \
+              | awk 'NF { print }'
+          }
 
-          if ! ssh-keygen -y -f "$HOME/.ssh/id_deploy" > /dev/null 2>&1; then
-            echo "::error::DEPLOY_SSH_KEY is not a valid OpenSSH private key after normalization."
+          printf '%s' "$DEPLOY_SSH_KEY" | normalize > "$KEY_FILE"
+
+          # Some setups store the key base64-encoded as a single blob. If there
+          # is no PEM header, try decoding once before giving up.
+          if ! grep -q -- '-----BEGIN' "$KEY_FILE"; then
+            if tr -d '\n' < "$KEY_FILE" | base64 -d 2>/dev/null | normalize > "$KEY_FILE.decoded" \
+               && grep -q -- '-----BEGIN' "$KEY_FILE.decoded"; then
+              echo "Secret was base64-encoded; decoded it."
+              mv "$KEY_FILE.decoded" "$KEY_FILE"
+            else
+              rm -f "$KEY_FILE.decoded"
+            fi
+          fi
+          chmod 600 "$KEY_FILE"
+
+          key_is_encrypted() {
+            # PEM/PKCS#1 marks encryption in the headers.
+            if grep -q 'Proc-Type:.*ENCRYPTED\|DEK-Info:' "$KEY_FILE"; then
+              return 0
+            fi
+            # OpenSSH format records the cipher/kdf in the decoded body.
+            if head -n 1 "$KEY_FILE" | grep -q 'BEGIN OPENSSH PRIVATE KEY'; then
+              if sed -e '1d' -e '$d' "$KEY_FILE" | tr -d '\n' | base64 -d 2>/dev/null \
+                 | head -c 128 | grep -qa 'bcrypt'; then
+                return 0
+              fi
+            fi
+            return 1
+          }
+
+          # An encrypted key is unusable by non-interactive ssh/scp, so strip the
+          # passphrase up front when one was supplied.
+          if key_is_encrypted; then
+            if [[ -z "${DEPLOY_SSH_KEY_PASSPHRASE}" ]]; then
+              echo "::error::DEPLOY_SSH_KEY is passphrase-protected but DEPLOY_SSH_KEY_PASSPHRASE is not set. Add that secret, or store an unencrypted key."
+              exit 1
+            fi
+            if ! ssh-keygen -p -P "$DEPLOY_SSH_KEY_PASSPHRASE" -N '' -f "$KEY_FILE" >/dev/null 2>&1; then
+              echo "::error::DEPLOY_SSH_KEY_PASSPHRASE did not decrypt DEPLOY_SSH_KEY."
+              exit 1
+            fi
+            echo "Removed passphrase from the deploy key for non-interactive use."
+          fi
+
+          if ! KEYGEN_ERR="$(ssh-keygen -y -f "$KEY_FILE" 2>&1 >/dev/null </dev/null)"; then
+            echo "::error::DEPLOY_SSH_KEY is not a usable OpenSSH private key after normalization."
+            # Structural diagnostics only - no key material is printed.
+            echo "--- diagnostics ---"
+            echo "bytes: $(wc -c < "$KEY_FILE")  lines: $(wc -l < "$KEY_FILE")"
+            echo "first line: $(head -n 1 "$KEY_FILE" | grep -o -- '-----BEGIN.*-----' || echo '(no BEGIN marker)')"
+            echo "last line:  $(tail -n 1 "$KEY_FILE" | grep -o -- '-----END.*-----' || echo '(no END marker)')"
+            if head -n 1 "$KEY_FILE" | grep -q '^ssh-\|^ecdsa-'; then
+              echo "hint: this looks like a PUBLIC key - the secret must hold the PRIVATE key."
+            fi
+            if grep -q 'PuTTY-User-Key-File' "$KEY_FILE"; then
+              echo "hint: this is a PuTTY .ppk - convert it with 'puttygen key.ppk -O private-openssh -o id_deploy'."
+            fi
+            echo "ssh-keygen said: ${KEYGEN_ERR}"
             exit 1
           fi
+          echo "Deploy key loaded and validated."
 
           printf '%s\n' \
             'Host *' \

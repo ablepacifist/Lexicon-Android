@@ -70,12 +70,17 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-/g')"
-          SSH_KEY_CONTENT="${DEPLOY_SSH_KEY//$'\r'/}"
-          SSH_KEY_CONTENT="${SSH_KEY_CONTENT#\"}"
-          SSH_KEY_CONTENT="${SSH_KEY_CONTENT%\"}"
-          SSH_KEY_CONTENT="${SSH_KEY_CONTENT//\\n/$'\n'}"
-          printf '%s\n' "$SSH_KEY_CONTENT" > ~/.ssh/id_ed25519
+          python3 - <<'PY'
+import os
+from pathlib import Path
+
+key = os.environ["DEPLOY_SSH_KEY"]
+key = key.replace("\r", "").strip()
+if key.startswith('"') and key.endswith('"'):
+    key = key[1:-1]
+key = key.replace("\\n", "\n")
+Path.home().joinpath(".ssh", "id_ed25519").write_text(key + "\n", encoding="utf-8", newline="\n")
+PY
           chmod 600 ~/.ssh/id_ed25519
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
 

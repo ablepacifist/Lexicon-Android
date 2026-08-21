@@ -6,6 +6,8 @@ import com.alexdyakin.lexicon.data.ConsumePotionRequest
 import com.alexdyakin.lexicon.data.BrewPotionRequest
 import com.alexdyakin.lexicon.data.BrewPotionResponse
 import com.alexdyakin.lexicon.data.Holdfast
+import com.alexdyakin.lexicon.data.HoldfastAdvanceResponse
+import com.alexdyakin.lexicon.data.HoldfastMutationResponse
 import com.alexdyakin.lexicon.data.HoldfastStatus
 import com.alexdyakin.lexicon.data.CreateHoldfastRequest
 import com.alexdyakin.lexicon.data.AdvanceHoldfastRequest
@@ -300,11 +302,13 @@ interface AlchemyApi {
     @GET("api/holdfast/all") suspend fun holdfasts(): List<Holdfast>
     @GET("api/holdfast/{groupName}") suspend fun holdfast(@Path("groupName") groupName: String): HoldfastStatus
     @POST("api/holdfast/create") suspend fun createHoldfast(@Body body: CreateHoldfastRequest): Holdfast
-    @POST("api/holdfast/advance") suspend fun advanceHoldfast(@Body body: AdvanceHoldfastRequest): HoldfastStatus
-    @POST("api/holdfast/build") suspend fun buildHoldfast(@Body body: BuildHoldfastRequest): HoldfastStatus
+    // These three return their own narrow shapes, not a full status — see the doc on
+    // HoldfastAdvanceResponse. Callers must re-GET api/holdfast/{groupName} afterwards.
+    @POST("api/holdfast/advance") suspend fun advanceHoldfast(@Body body: AdvanceHoldfastRequest): HoldfastAdvanceResponse
+    @POST("api/holdfast/build") suspend fun buildHoldfast(@Body body: BuildHoldfastRequest): HoldfastMutationResponse
     @POST("api/holdfast/deposit") suspend fun depositHoldfast(@Body body: DepositHoldfastRequest): Holdfast
     @POST("api/holdfast/withdraw") suspend fun withdrawHoldfast(@Body body: WithdrawHoldfastRequest): HoldfastOperationResponse
-    @POST("api/holdfast/replant") suspend fun replantHoldfast(@Body body: ReplantHoldfastRequest): HoldfastStatus
+    @POST("api/holdfast/replant") suspend fun replantHoldfast(@Body body: ReplantHoldfastRequest): HoldfastMutationResponse
     @POST("api/holdfast/toggle-food-market") suspend fun toggleFoodMarket(@Body body: ToggleFoodMarketRequest): Holdfast
     @GET("api/holdfast/{groupName}/events") suspend fun holdfastEvents(@Path("groupName") groupName: String): List<HoldfastEvent>
     @DELETE("api/holdfast/{groupName}") suspend fun deleteHoldfast(@Path("groupName") groupName: String): HoldfastOperationResponse

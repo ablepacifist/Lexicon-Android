@@ -256,6 +256,31 @@ data class BrewPotionResponse(val message: String = "")
 )
 @Serializable data class HoldfastOperationResponse(val success: Boolean = false, val message: String = "")
 
+/**
+ * `POST /api/holdfast/advance` returns only these fields — NOT a [HoldfastStatus].
+ *
+ * Modelling it as a status used to "work" because every [HoldfastStatus] field has a
+ * default and the Json parser ignores unknown keys, so the response silently produced
+ * a hollow status with protection/raidChance/buildingMenu zeroed. Assigning that to the
+ * UI blanked the Status and Build tabs after every advance. Re-fetch the real status
+ * with `GET /api/holdfast/{groupName}` instead.
+ */
+@Serializable data class HoldfastAdvanceResponse(
+    val success: Boolean = false,
+    val events: List<String> = emptyList(),
+    val holdfast: Holdfast = Holdfast(),
+    val dailyIncome: Double = 0.0,
+    val dailyUpkeep: Double = 0.0,
+)
+
+/** Shared shape of `POST /api/holdfast/build` and `POST /api/holdfast/replant`. */
+@Serializable data class HoldfastMutationResponse(
+    val success: Boolean = false,
+    val message: String = "",
+    val holdfast: Holdfast = Holdfast(),
+    val cost: Int? = null,
+)
+
 // ── Lexicon media ────────────────────────────────────────────────────────────
 
 @Serializable

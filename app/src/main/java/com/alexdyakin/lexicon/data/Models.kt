@@ -453,3 +453,9 @@ data class PokemonSpecies(
 @Serializable data class EvolutionResult(val success: Boolean = false, val oldName: String = "", val newName: String = "", val newSpeciesId: Int = 0, val newSpriteKey: String = "")
 @Serializable data class HealPokemonRequest(val caughtId: Long, val item: String)
 @Serializable data class HealPokemonResult(val success: Boolean = false, val caughtId: Long = 0, val currentHp: Int = 0, val maxHp: Int = 0, val restored: Int = 0, val message: String = "")
+
+/**
+ * Response of POST /api/auth/sso/generate-token. Single-use and short-lived, so it
+ * must be minted immediately before a bridge connect rather than cached.
+ */
+@Serializable data class SsoTokenResponse(val token: String = "", val expiresInSeconds: Int = 60)

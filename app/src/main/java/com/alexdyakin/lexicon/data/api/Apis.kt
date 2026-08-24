@@ -57,6 +57,7 @@ import com.alexdyakin.lexicon.data.PokemonPlayerStats
 import com.alexdyakin.lexicon.data.NotificationPrefs
 import com.alexdyakin.lexicon.data.RegisterRequest
 import com.alexdyakin.lexicon.data.RegisterResponse
+import com.alexdyakin.lexicon.data.SsoTokenResponse
 import com.alexdyakin.lexicon.data.AvatarResponse
 import com.alexdyakin.lexicon.data.RemoveAvatarRequest
 import com.alexdyakin.lexicon.data.AppNotification
@@ -102,6 +103,13 @@ interface AuthApi {
 
     @POST("api/auth/logout")
     suspend fun logout()
+
+    /**
+     * Mints a single-use SSO token for the Mumble bridge. Expires in 60 seconds, so
+     * mint it immediately before connecting rather than ahead of any retry wait.
+     */
+    @POST("api/auth/sso/generate-token")
+    suspend fun generateSsoToken(): SsoTokenResponse
 }
 
 interface MediaApi {

@@ -19,6 +19,10 @@
     <!-- Background media playback + its notification -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Voice on the Mumble bridge captures the microphone while the app is in the
+         background. On API 34+ a microphone foreground service is refused without
+         both this permission and the matching foregroundServiceType below. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -53,6 +57,14 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Keeps the microphone and the audio threads alive while the user is in
+             another app. Without a foreground service Android silences the capture
+             within seconds of leaving the screen. -->
+        <service
+            android:name=".voice.VoiceService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

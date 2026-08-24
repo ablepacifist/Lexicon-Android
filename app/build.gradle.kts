@@ -90,6 +90,15 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub in unit tests and throws "not mocked" by
+            // default. BridgeConnection logs on the reconnect path, which is exactly
+            // what the JVM tests exercise.
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

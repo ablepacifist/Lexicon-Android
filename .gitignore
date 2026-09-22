@@ -35,3 +35,8 @@ Thumbs.db
 keystore-base64.txt
 lexicon-release.jks
 .github/workflows/secret.txt
+# Lexi model download cache (see downloadLexiModels in app/build.gradle.kts)
+/.lexi-models/
+# Local destination-registry override (see .env.example / app/build.gradle.kts) —
+# a real monorepo checkout has this one level up instead; never commit either.
+/.env

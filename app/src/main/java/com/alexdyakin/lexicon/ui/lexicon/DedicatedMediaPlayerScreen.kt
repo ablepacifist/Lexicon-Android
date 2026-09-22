@@ -628,8 +628,8 @@ private fun AudiobookNowPlayingSection(
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.clickable(onClick = onBack30)) {
-                    Text("↺ 30s", color = MediaText, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(onClick = onBack30)) {
+                    Text("↺ 30s", color = MediaText, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp))
                 }
                 Box(
                     modifier = Modifier
@@ -645,8 +645,8 @@ private fun AudiobookNowPlayingSection(
                         modifier = Modifier.size(30.dp),
                     )
                 }
-                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.clickable(onClick = onForward30)) {
-                    Text("30s ↻", color = MediaText, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp))
+                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(onClick = onForward30)) {
+                    Text("30s ↻", color = MediaText, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp))
                 }
             }
 
@@ -750,10 +750,10 @@ private fun VideoNowPlayingSection(
                         horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.clickable(enabled = playerState.hasPrevious, onClick = onPrevious)) {
-                            Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(enabled = playerState.hasPrevious, onClick = onPrevious)) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
                                 Icon(Icons.Filled.SkipPrevious, "Previous", tint = if (playerState.hasPrevious) MediaText else MediaMuted)
-                                Text("Previous", color = if (playerState.hasPrevious) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge)
+                                Text("Previous", color = if (playerState.hasPrevious) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         Box(
@@ -770,9 +770,9 @@ private fun VideoNowPlayingSection(
                                 modifier = Modifier.size(30.dp),
                             )
                         }
-                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.clickable(enabled = playerState.hasNext, onClick = onNext)) {
-                            Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Next", color = if (playerState.hasNext) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge)
+                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(enabled = playerState.hasNext, onClick = onNext)) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+                                Text("Next", color = if (playerState.hasNext) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Icon(Icons.Filled.SkipNext, "Next", tint = if (playerState.hasNext) MediaText else MediaMuted)
                             }
                         }

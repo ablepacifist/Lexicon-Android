@@ -34,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import com.alexdyakin.lexicon.ui.components.OnScrim
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.ui.notifications.NotificationsViewModel
 
@@ -95,6 +97,7 @@ fun HomeScreen(
             Destination("pokemon", "Pokémon", "Gotta chatch all them that alex has implemented", R.drawable.ic_pokeball),
             Destination("voice", "Voice", "Comunicaton hub. basically Discord clone", R.drawable.ic_microphone),
             Destination("events", "Events", "Plans and public polls", R.drawable.logo_runed),
+            Destination("lexi", "Lexi", "Voice assistant. Say “Hey Jarvis”", R.drawable.ic_lexi),
         )
     }
 
@@ -120,18 +123,12 @@ fun HomeScreen(
             topBar = {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(
-                                "Lexicon",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                "Welcome back, $username",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            "Lexicon",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
@@ -156,6 +153,16 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // The greeting lives here rather than in the app bar, where three
+                // action buttons left the title slot too narrow to show a full name.
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "Welcome back, $username",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OnScrim,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
                 items(destinations, key = { it.key }) { destination ->
                     DestinationTile(destination) { onOpen(destination.key) }
                 }

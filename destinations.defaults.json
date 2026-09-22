@@ -1,0 +1,13 @@
+{
+  "LAN_HOST": "192.168.1.4",
+  "ALISON_LAN_IP": "192.168.1.2",
+  "LEXICON_PORT": "36568",
+  "ALCHEMY_PORT": "8080",
+  "POKEMON_PORT": "8090",
+  "BRAIN_LAN_PORT": "9080",
+  "PUBLIC_LEXICON_URL": "https://api.alex-dyakin.com",
+  "PUBLIC_ALCHEMY_URL": "https://alchemy.alex-dyakin.com",
+  "PUBLIC_POKEMON_URL": "https://poke.alex-dyakin.com",
+  "PUBLIC_BRIDGE_URL": "https://voice.alex-dyakin.com",
+  "PUBLIC_BRAIN_URL": "https://llm.alex-dyakin.com"
+}

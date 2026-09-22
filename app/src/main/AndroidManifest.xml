@@ -24,6 +24,17 @@
          both this permission and the matching foregroundServiceType below. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lexi asks, from its own screen, to be exempt so the brain stays reachable with the
+         screen off. The app is distributed outside Play, where this is restricted. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Since API 30 an app cannot see text-to-speech engines, and so cannot speak,
+         unless it declares that it looks for them. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application
         android:name=".LexiconApplication"
@@ -63,6 +74,12 @@
              within seconds of leaving the screen. -->
         <service
             android:name=".voice.VoiceService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Lexi, the voice assistant: listens for the wake word with the screen off. -->
+        <service
+            android:name=".lexi.LexiService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 

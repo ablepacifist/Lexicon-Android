@@ -41,6 +41,8 @@ import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.ApiResult
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.LiveStreamQueueItem
+import com.alexdyakin.lexicon.data.liveStreamServerPosition
+import com.alexdyakin.lexicon.data.liveStreamStartPosition
 import com.alexdyakin.lexicon.data.LiveStreamState
 import com.alexdyakin.lexicon.data.MediaFile
 import com.alexdyakin.lexicon.data.Playlist
@@ -93,7 +95,6 @@ import kotlin.math.pow
  * Longer than any plausible single track. A computed live position beyond this means the
  * server's start time is stale, not that we joined very late.
  */
-private const val STALE_POSITION_MS = 3 * 60 * 60 * 1000L
 
 enum class StreamConnection { CONNECTING, CONNECTED, DISCONNECTED }
 
@@ -299,27 +300,9 @@ class LiveStreamViewModel @Inject constructor(
         lastLoadedMediaId = media.id
         hasSynced = false
 
-        val startAt = liveStartPosition(stream)
+        val startAt = liveStreamStartPosition(stream)
         player.play(listOf(media), 0, startAt)
         hasSynced = true
-    }
-
-    /**
-     * Where a joining listener should start.
-     *
-     * The web rule is "seek to the live position, but ignore an offset under 15s — that is just
-     * loading latency". Kept, with one guard the web lacks: when nobody has been listening, no
-     * client reports `media-ended`, so the server's `currentStartTime` goes stale and the
-     * computed position can run far past the end of the track (observed: 17+ minutes into a
-     * 4-minute song). Starting there means the track ends instantly and no audio is ever heard,
-     * so beyond a sane bound we start from the beginning and let the normal media-ended
-     * reporting resynchronise the server.
-     */
-    private fun liveStartPosition(stream: LiveStreamState): Long {
-        val serverPositionMs = serverPosition(stream)
-        if (serverPositionMs <= 15_000L) return 0L
-        if (serverPositionMs > STALE_POSITION_MS) return 0L
-        return serverPositionMs
     }
 
     private fun startDriftWatch() {
@@ -331,8 +314,8 @@ class LiveStreamViewModel @Inject constructor(
                 val media = stream.currentMedia ?: continue
                 val local = player.state.value
                 if (local.mediaId != media.id.toString()) continue
-                if (abs(local.positionMs - serverPosition(stream)) > 30_000L) {
-                    player.seekTo(serverPosition(stream))
+                if (abs(local.positionMs - liveStreamServerPosition(stream)) > 30_000L) {
+                    player.seekTo(liveStreamServerPosition(stream))
                 }
 
                 // Client-side stale detector: the web reconnects if no heartbeat in 90s.
@@ -343,13 +326,6 @@ class LiveStreamViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    /** `currentPositionMs + (now - currentStartTime)`, straight from `calculateCurrentPosition`. */
-    private fun serverPosition(state: LiveStreamState): Long {
-        if (state.currentStartTime <= 0L) return state.currentPositionMs.coerceAtLeast(0L)
-        val elapsed = System.currentTimeMillis() - state.currentStartTime
-        return (state.currentPositionMs + elapsed).coerceAtLeast(0L)
     }
 
     private fun reportMediaEnded() {

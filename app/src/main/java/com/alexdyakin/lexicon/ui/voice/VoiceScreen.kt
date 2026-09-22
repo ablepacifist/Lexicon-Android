@@ -91,8 +91,11 @@ import com.alexdyakin.lexicon.data.bridge.BridgeChannel
 import com.alexdyakin.lexicon.data.bridge.BridgeChatState
 import com.alexdyakin.lexicon.data.bridge.BridgeRepository
 import com.alexdyakin.lexicon.data.bridge.BridgeState
+import androidx.compose.ui.unit.Dp
 import com.alexdyakin.lexicon.data.bridge.ChatAttachment
 import com.alexdyakin.lexicon.data.bridge.DmConversation
+import com.alexdyakin.lexicon.data.bridge.MumbleUser
+import com.alexdyakin.lexicon.data.bridge.WebClient
 import com.alexdyakin.lexicon.voice.VoiceService
 import com.alexdyakin.lexicon.voice.VoiceSession
 import com.alexdyakin.lexicon.voice.VoiceState
@@ -281,6 +284,8 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
                     channels = state.channels,
                     selectedId = state.selectedChannelId,
                     connection = state.connection,
+                    webClients = state.webClients,
+                    mumbleUsers = state.mumbleUsers,
                     conversations = state.dmConversations,
                     dmUnread = state.dmUnread,
                     onSelect = {
@@ -455,6 +460,8 @@ private fun ChannelSidebar(
     channels: List<BridgeChannel>,
     selectedId: Int?,
     connection: BridgeState,
+    webClients: List<WebClient>,
+    mumbleUsers: List<MumbleUser>,
     conversations: List<DmConversation>,
     dmUnread: Map<Long, Int>,
     onSelect: (Int) -> Unit,
@@ -491,18 +498,73 @@ private fun ChannelSidebar(
                     // A voice room is a place to talk, not to read: there is no
                     // message history behind one, so selecting it would show an
                     // empty channel.
-                    is ChannelRow.Channel -> ChannelItem(
-                        row = row,
-                        active = row.channel.id == selectedId,
-                        onClick = {
-                            if (row.isVoice) onJoinVoice(row.channel.id)
-                            else onSelect(row.channel.id)
-                        },
-                    )
+                    is ChannelRow.Channel -> Column {
+                        ChannelItem(
+                            row = row,
+                            active = row.channel.id == selectedId,
+                            onClick = {
+                                if (row.isVoice) onJoinVoice(row.channel.id)
+                                else onSelect(row.channel.id)
+                            },
+                        )
+                        if (row.isVoice) {
+                            VoiceOccupants(
+                                channelId = row.channel.id,
+                                webClients = webClients,
+                                mumbleUsers = mumbleUsers,
+                            )
+                        }
+                    }
                 }
             }
         }
         UserPanel(connection)
+    }
+}
+
+/**
+ * Who is sitting in a voice room, listed underneath it as Discord does.
+ *
+ * Both identity spaces are drawn together here, because to a person reading the
+ * sidebar they are simply the people in the room: web clients report their room in
+ * `voiceChannelId`, while native Mumble users are in it by virtue of `channelId`.
+ * That is the one place merging them is right — it says nothing about who they are,
+ * only where they are.
+ */
+@Composable
+private fun VoiceOccupants(
+    channelId: Int,
+    webClients: List<WebClient>,
+    mumbleUsers: List<MumbleUser>,
+) {
+    // A web user in voice appears in BOTH rosters: once as a web client, and again as
+    // the Mumble connection the bridge opens on their behalf, which authenticates as
+    // "web_<username>". Stripping that prefix from both sides collapses the two into
+    // the one person they actually are.
+    val names = buildList {
+        webClients.filter { it.inVoice && it.voiceChannelId == channelId }
+            .forEach { add(it.username.removePrefix("web_")) }
+        mumbleUsers.filter { it.channelId == channelId }
+            .forEach { add(it.name.removePrefix("web_")) }
+    }.distinct().sorted()
+
+    names.forEach { name ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 40.dp, end = 8.dp, top = 1.dp, bottom = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(20.dp)) { InitialAvatar(name, size = 20.dp) }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                name,
+                color = BridgeColors.textMuted,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -817,15 +879,15 @@ internal fun Avatar(username: String) {
 }
 
 @Composable
-internal fun InitialAvatar(name: String) {
+internal fun InitialAvatar(name: String, size: Dp = 40.dp) {
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(BridgeColors.avatarColor(name)),
+        Modifier.size(size).clip(CircleShape).background(BridgeColors.avatarColor(name)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             name.firstOrNull()?.uppercase() ?: "?",
             color = Color.White,
-            fontSize = 16.sp,
+            fontSize = if (size >= 40.dp) 16.sp else 11.sp,
             fontWeight = FontWeight.SemiBold,
         )
     }

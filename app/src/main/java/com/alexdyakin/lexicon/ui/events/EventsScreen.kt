@@ -12,9 +12,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.*
 import com.alexdyakin.lexicon.data.api.EventApi
+import com.alexdyakin.lexicon.ui.components.OnScrim
+import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -43,13 +47,35 @@ data class EventsState(val loading: Boolean = true, val events: List<LexiconEven
     if (createEvent) EventDialog({ createEvent = false }, viewModel::create)
     if (createPoll && state.detail != null) PollDialog({ createPoll = false }) { q, options, allowAddOptions -> viewModel.createPoll(state.detail!!.event.id, q, options, allowAddOptions); createPoll = false }
     ScreenScaffold(if (state.poll != null) "Vote" else if (state.detail != null) state.detail!!.event.title else "Events", { if (state.detail != null) viewModel.close() else onBack() }, R.drawable.bg_dashboard) { padding ->
-        when { state.poll != null -> PollView(state.detail!!.event.id, state.poll!!, name, { name = it }, viewModel::vote, viewModel::addOption)
-            state.detail != null -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp)) { item { Text(state.detail!!.event.description); Button({ createPoll = true }, Modifier.padding(top = 12.dp)) { Text("Add poll") } }; items(state.detail!!.polls) { poll -> Card(Modifier.fillMaxWidth().padding(top = 10.dp).clickable { viewModel.openPoll(state.detail!!.event.id, poll.id) }) { Text(poll.question, Modifier.padding(16.dp)) } } }
-            else -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Button({ createEvent = true }) { Text("Create event") } }; items(state.events) { event -> Card(Modifier.fillMaxWidth().clickable { viewModel.open(event.id) }) { Column(Modifier.padding(16.dp)) { Text(event.title, style = MaterialTheme.typography.titleMedium); Text(event.eventDate); Text("${event.pollCount} polls") } } } }
+        when { state.poll != null -> PollView(padding, state.detail!!.event.id, state.poll!!, name, { name = it }, viewModel::vote, viewModel::addOption)
+            state.detail != null -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp)) { item { Card(Modifier.fillMaxWidth()) { Text(state.detail!!.event.description, Modifier.padding(16.dp)) }; Button({ createPoll = true }, Modifier.padding(top = 12.dp)) { Text("Add poll") } }; items(state.detail!!.polls) { poll -> Card(Modifier.fillMaxWidth().padding(top = 10.dp).clickable { viewModel.openPoll(state.detail!!.event.id, poll.id) }) { Text(poll.question, Modifier.padding(16.dp)) } } }
+            else -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Button({ createEvent = true }) { Text("Create event") } }; items(state.events) { event -> Card(Modifier.fillMaxWidth().clickable { viewModel.open(event.id) }) { Column(Modifier.padding(16.dp)) { Text(event.title, style = MaterialTheme.typography.titleMedium); Text(event.eventDate, style = MaterialTheme.typography.bodyMedium); Text("${event.pollCount} polls", style = MaterialTheme.typography.labelMedium) } } } }
         }
     }
 }
-@Composable private fun PollView(eventId: Long, detail: PollDetail, name: String, setName: (String) -> Unit, vote: (Long, Long, List<Long>, String) -> Unit, addOption: (Long, Long, String, String) -> Unit) { var selected by remember(detail) { mutableStateOf(detail.options.filter { it.votedByMe }.map { it.id }.toSet()) }; var optionText by remember(detail) { mutableStateOf("") }; Column(Modifier.padding(16.dp)) { Text(detail.poll.question, style = MaterialTheme.typography.titleLarge); OutlinedTextField(name, setName, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)); detail.options.forEach { option -> Row(Modifier.fillMaxWidth().clickable { selected = selected.toggle(option.id) }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Checkbox(option.id in selected, null); Column { Text(option.text); Text("${option.voteCount} votes · ${option.voters.joinToString()}", style = MaterialTheme.typography.labelSmall) } } }; Button({ vote(eventId, detail.poll.id, selected.toList(), name) }, enabled = name.isNotBlank(), modifier = Modifier.padding(top = 12.dp)) { Text("Save votes") }; if (detail.poll.allowAddOptions) { OutlinedTextField(optionText, { optionText = it }, label = { Text("Suggest an option") }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)); Button({ addOption(eventId, detail.poll.id, optionText.trim(), name); optionText = "" }, enabled = name.isNotBlank() && optionText.isNotBlank(), modifier = Modifier.padding(top = 8.dp)) { Text("Add option") } } } }
+@Composable private fun PollView(padding: PaddingValues, eventId: Long, detail: PollDetail, name: String, setName: (String) -> Unit, vote: (Long, Long, List<Long>, String) -> Unit, addOption: (Long, Long, String, String) -> Unit) { var selected by remember(detail) { mutableStateOf(detail.options.filter { it.votedByMe }.map { it.id }.toSet()) }; var optionText by remember(detail) { mutableStateOf("") }; Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text(detail.poll.question, style = MaterialTheme.typography.titleLarge, color = OnScrim)
+        OutlinedTextField(name, setName, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
+        // Each option is a Card: on the scrim the default text colours are effectively
+        // invisible, and a checkbox alone gives nothing to read the label against.
+        detail.options.forEach { option ->
+            Card(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { selected = selected.toggle(option.id) }) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(option.id in selected, null)
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Text(option.text, style = MaterialTheme.typography.bodyLarge)
+                        Text("${option.voteCount} votes" + if (option.voters.isEmpty()) "" else " · ${option.voters.joinToString()}", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+        if (name.isBlank()) Text("Enter your name above to vote.", style = MaterialTheme.typography.labelMedium, color = OnScrimDim, modifier = Modifier.padding(top = 12.dp))
+        Button({ vote(eventId, detail.poll.id, selected.toList(), name) }, enabled = name.isNotBlank(), modifier = Modifier.padding(top = 12.dp)) { Text("Save votes") }
+        if (detail.poll.allowAddOptions) {
+            OutlinedTextField(optionText, { optionText = it }, label = { Text("Suggest an option") }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))
+            Button({ addOption(eventId, detail.poll.id, optionText.trim(), name); optionText = "" }, enabled = name.isNotBlank() && optionText.isNotBlank(), modifier = Modifier.padding(top = 8.dp)) { Text("Add option") }
+        }
+    } }
 @Composable private fun EventDialog(dismiss: () -> Unit, submit: (String, String, String) -> Unit) { var title by remember { mutableStateOf("") }; var desc by remember { mutableStateOf("") }; var date by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = dismiss, title = { Text("Create event") }, text = { Column { OutlinedTextField(title, { title = it }, label = { Text("Title") }); OutlinedTextField(desc, { desc = it }, label = { Text("Description") }); OutlinedTextField(date, { date = it }, label = { Text("Date (YYYY-MM-DD)") }) } }, confirmButton = { Button({ submit(title, desc, date); dismiss() }, enabled = title.isNotBlank()) { Text("Create") } }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }) }
 @Composable private fun PollDialog(dismiss: () -> Unit, submit: (String, List<String>, Boolean) -> Unit) { var question by remember { mutableStateOf("") }; var options by remember { mutableStateOf("") }; var allowAddOptions by remember { mutableStateOf(true) }; AlertDialog(onDismissRequest = dismiss, title = { Text("Add poll") }, text = { Column { OutlinedTextField(question, { question = it }, label = { Text("Question") }); OutlinedTextField(options, { options = it }, label = { Text("Options, one per line") }); Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Switch(allowAddOptions, { allowAddOptions = it }); Text(" Attendees can add options") } } }, confirmButton = { Button({ submit(question, options.lines().filter { it.isNotBlank() }, allowAddOptions) }, enabled = question.isNotBlank()) { Text("Add") } }, dismissButton = { TextButton(dismiss) { Text("Cancel") } }) }
 private fun Set<Long>.toggle(id: Long) = if (id in this) this - id else this + id

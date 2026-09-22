@@ -12,18 +12,33 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.alexdyakin.lexicon.push.PushTokenRegistrar
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.alexdyakin.lexicon.data.TokenStore
+import com.alexdyakin.lexicon.lexi.LexiService
+import com.alexdyakin.lexicon.lexi.LexiSettingsStore
+import com.alexdyakin.lexicon.ui.lexi.LexiScreen
+import com.alexdyakin.lexicon.ui.components.LaunchSequence
 import com.alexdyakin.lexicon.ui.alchemy.AlchemyScreen
 import com.alexdyakin.lexicon.ui.alchemy.KnowledgeBookScreen
 import com.alexdyakin.lexicon.ui.alchemy.HoldfastScreen
@@ -54,7 +69,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 /** Screen transition duration. Short enough not to slow navigation down. */
-private const val NAV_ANIM_MS = 260
+private const val NAV_ANIM_MS = 340
 
 object Routes {
     const val LOGIN = "login"
@@ -90,6 +105,7 @@ object Routes {
     const val EGGS = "eggs"
     const val POKEMON_DETAIL = "pokemon-detail/{id}"
     const val VOICE = "voice"
+    const val LEXI = "lexi"
 }
 
 @AndroidEntryPoint
@@ -97,6 +113,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var tokenStore: TokenStore
     @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
+    @Inject lateinit var lexiSettings: LexiSettingsStore
 
     // Android 13+ will not show notifications until the user grants this.
     private val requestNotificationPermission =
@@ -111,10 +128,34 @@ class MainActivity : ComponentActivity() {
         // that rotated while the app was not running.
         lifecycleScope.launch { pushTokenRegistrar.syncCurrentToken() }
 
+        resumeLexi()
+
         setContent {
             LexiconTheme {
-                LexiconApp(tokenStore)
+                LexiconApp(
+                    tokenStore = tokenStore,
+                    initialRoute = intent?.getStringExtra(EXTRA_ROUTE),
+                    onSignedOut = {
+                        // Lexi speaks to the brain as the signed-in user, so it must not
+                        // carry on listening for whoever picks the phone up next.
+                        lexiSettings.setEnabled(false)
+                        LexiService.stop(this)
+                    },
+                )
             }
+        }
+    }
+
+    /**
+     * Picks Lexi back up if the user left it on. A microphone foreground service can only be
+     * started while the app is in the foreground, so this, rather than boot, is where Lexi
+     * comes back after a restart.
+     */
+    private fun resumeLexi() {
+        val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (lexiSettings.settings.value.enabled && tokenStore.isLoggedIn && micGranted) {
+            LexiService.start(this)
         }
     }
 
@@ -126,41 +167,59 @@ class MainActivity : ComponentActivity() {
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
+
+    companion object {
+        /** A route to open on launch, used by Lexi's notification. */
+        const val EXTRA_ROUTE = "route"
+    }
 }
 
 @Composable
-private fun LexiconApp(tokenStore: TokenStore) {
+private fun LexiconApp(tokenStore: TokenStore, initialRoute: String?, onSignedOut: () -> Unit) {
     val navController = rememberNavController()
+
+    // Shown once per cold start, over the app rather than as a nav destination, so it
+    // never lands on the back stack and cannot be returned to.
+    var launching by rememberSaveable { mutableStateOf(true) }
 
     // A stored bearer token means the session survived the app being killed
     val start = remember { if (tokenStore.isLoggedIn) Routes.HOME else Routes.LOGIN }
     val displayName = remember { tokenStore.username ?: "traveller" }
 
     fun signOut() {
+        onSignedOut()
         tokenStore.clear()
         navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
     }
 
     // Applied to every destination: forward navigation slides in from the right and
     // back pops the other way, so the stack has a sense of direction.
+    Box(Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = start,
+        // The incoming screen travels a third of the width and grows very slightly into
+        // place while the outgoing one recedes, which reads as one screen sitting on top
+        // of another rather than as a cross-fade you have to look for.
         enterTransition = {
-            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS)) { it / 6 } +
-                fadeIn(animationSpec = tween(NAV_ANIM_MS))
+            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it / 3 } +
+                fadeIn(animationSpec = tween(NAV_ANIM_MS)) +
+                scaleIn(animationSpec = tween(NAV_ANIM_MS), initialScale = 0.94f)
         },
         exitTransition = {
-            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS)) { -it / 8 } +
-                fadeOut(animationSpec = tween(NAV_ANIM_MS))
+            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 5 } +
+                fadeOut(animationSpec = tween(NAV_ANIM_MS)) +
+                scaleOut(animationSpec = tween(NAV_ANIM_MS), targetScale = 0.96f)
         },
         popEnterTransition = {
-            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS)) { -it / 8 } +
-                fadeIn(animationSpec = tween(NAV_ANIM_MS))
+            slideInHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 5 } +
+                fadeIn(animationSpec = tween(NAV_ANIM_MS)) +
+                scaleIn(animationSpec = tween(NAV_ANIM_MS), initialScale = 0.96f)
         },
         popExitTransition = {
-            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS)) { it / 6 } +
-                fadeOut(animationSpec = tween(NAV_ANIM_MS))
+            slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it / 3 } +
+                fadeOut(animationSpec = tween(NAV_ANIM_MS)) +
+                scaleOut(animationSpec = tween(NAV_ANIM_MS), targetScale = 0.94f)
         },
     ) {
         composable(Routes.LOGIN) {
@@ -314,5 +373,16 @@ private fun LexiconApp(tokenStore: TokenStore) {
         composable(Routes.EGGS) { EggsScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.POKEMON_DETAIL) { entry -> PokemonDetailScreen(entry.arguments?.getString("id")?.toLongOrNull() ?: 0, onBack = { navController.popBackStack() }) }
         composable(Routes.VOICE) { VoiceScreen(onBack = { navController.popBackStack() }) }
+        composable(Routes.LEXI) { LexiScreen(onBack = { navController.popBackStack() }) }
+    }
+
+    // Deep link from a notification, honoured only for a signed-in user.
+    LaunchedEffect(Unit) {
+        if (initialRoute == Routes.LEXI && start == Routes.HOME) navController.navigate(Routes.LEXI)
+    }
+
+        if (launching) {
+            LaunchSequence(onFinished = { launching = false })
+        }
     }
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Everything the app talks to is HTTPS/WSS, so cleartext is off and only the system's certificate authorities are trusted
+  (a CA the user or an attacker installed on the phone is not). Debug builds may also trust user-installed CAs so a
+  proxy can be used while developing.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

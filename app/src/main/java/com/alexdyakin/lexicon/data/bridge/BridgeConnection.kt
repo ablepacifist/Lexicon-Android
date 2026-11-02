@@ -106,6 +106,17 @@ class BridgeConnection @Inject constructor(
     private var lifecycle: Job? = null
     private var attempt = 0
 
+    @Volatile
+    private var issuedSessionToken: String? = null
+
+    /**
+     * The session token the bridge issued for this connection, for its HTTP routes (it is sent as
+     * `Authorization: Bearer`). Null unless the connection is [BridgeState.Ready], so a token from a
+     * connection that has since dropped is never used.
+     */
+    val sessionToken: String?
+        get() = if (_state.value is BridgeState.Ready) issuedSessionToken else null
+
     /** Idempotent: repeated calls while already running are ignored. */
     fun start() {
         if (lifecycle?.isActive == true) return
@@ -162,6 +173,7 @@ class BridgeConnection @Inject constructor(
 
     /** Suspends until the socket closes or fails. Returns true if it ever went Ready. */
     private suspend fun connectOnce(): Boolean {
+        issuedSessionToken = null
         _state.value = BridgeState.Connecting
 
         // Minted here, immediately before the upgrade — see the class doc.
@@ -198,6 +210,7 @@ class BridgeConnection @Inject constructor(
                     when (event) {
                         is AuthOkEvent -> {
                             reachedReady = true
+                            issuedSessionToken = event.sessionToken
                             _state.value =
                                 BridgeState.Ready(event.username, event.userId, event.isAdmin)
                         }

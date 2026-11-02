@@ -60,6 +60,8 @@ data class AuthOkEvent(
     val userId: Int? = null,
     val isAdmin: Boolean = false,
     val sso: Boolean = false,
+    /** Opaque token for this sign-in. The bridge's HTTP routes (image upload) want it as a bearer token. */
+    val sessionToken: String? = null,
 ) : BridgeEvent {
     override val type: String get() = "auth_ok"
 }

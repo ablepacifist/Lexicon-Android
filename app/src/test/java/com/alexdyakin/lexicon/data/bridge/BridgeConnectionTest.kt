@@ -248,4 +248,56 @@ class BridgeConnectionTest {
         assertEquals(2, creds.mintCount)
         conn.stop()
     }
+
+    // ── the session token the bridge issues on auth_ok (needed for its HTTP routes) ──
+
+    @Test
+    fun `the session token is exposed while Ready and gone once stopped`() = runBlocking {
+        enqueueSocket()
+        val conn = connection()
+        conn.start()
+        assertNotNull(received.poll(5, TimeUnit.SECONDS))
+        assertEquals("no token before sign-in completes", null, conn.sessionToken)
+
+        serverSocket!!.send(
+            """{"type":"auth_ok","username":"alex","userId":7,"isAdmin":false,"sso":true,"verified":true,"sessionToken":"sess-abc"}""",
+        )
+        withTimeout(5_000) { conn.state.first { it is BridgeState.Ready } }
+        assertEquals("sess-abc", conn.sessionToken)
+
+        conn.stop()
+        assertEquals("a dropped connection's token must not be used", null, conn.sessionToken)
+    }
+
+    @Test
+    fun `an auth_ok from an older bridge without a token leaves no token`() = runBlocking {
+        enqueueSocket()
+        val conn = connection()
+        conn.start()
+        assertNotNull(received.poll(5, TimeUnit.SECONDS))
+        serverSocket!!.send(authOk())
+        withTimeout(5_000) { conn.state.first { it is BridgeState.Ready } }
+        assertEquals(null, conn.sessionToken)
+        conn.stop()
+    }
+
+    @Test
+    fun `channels sent after auth_ok still arrive, as the current bridge orders them`() = runBlocking {
+        enqueueSocket()
+        val conn = connection()
+        conn.start()
+        assertNotNull(received.poll(5, TimeUnit.SECONDS))
+
+        val firstState = CoroutineScope(Dispatchers.IO).async {
+            withTimeout(5_000) { conn.events.first { it is ServerStateEvent } }
+        }
+        kotlinx.coroutines.delay(300) // let the collector subscribe (the flow does not replay)
+        serverSocket!!.send(authOk())
+        serverSocket!!.send("""{"type":"server_state","channels":[{"id":3,"name":"General"}],"users":[]}""")
+
+        val event = firstState.await() as ServerStateEvent
+        assertEquals(3, event.channels.single().id)
+        withTimeout(5_000) { conn.state.first { it is BridgeState.Ready } }
+        conn.stop()
+    }
 }

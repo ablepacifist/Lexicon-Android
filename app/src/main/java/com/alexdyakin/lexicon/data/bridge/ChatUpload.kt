@@ -37,9 +37,11 @@ data class ChatUploadResult(
  *
  * This is a plain OkHttp call rather than Retrofit because the endpoint lives on the
  * bridge host rather than Lexicon, and it takes a hand-built multipart body whose field
- * names the server matches exactly. It is also deliberately **not** token-aware: the
- * bridge authenticates in-band over the socket and ignores an Authorization header, so
- * `userId` in the form is what identifies the uploader.
+ * names the server matches exactly. It is deliberately **not** run through the Lexicon
+ * [com.alexdyakin.lexicon.data.AuthInterceptor]: the bridge has its own credential, the
+ * session token it issued on `auth_ok`, which is sent here as `Authorization: Bearer`.
+ * The bridge acts as the signed-in user that token belongs to; the `username`/`userId`
+ * form fields are still sent for older bridges but are ignored by a current one.
  *
  * The server's limits are enforced here too, so an oversized or unsupported file fails
  * immediately with something readable instead of costing an 8 MB round trip to be told
@@ -52,7 +54,11 @@ class ChatUploader @Inject constructor(
     // that stays open, which is wrong for an 8MB request that must eventually give up.
     @BaseOkHttp private val client: OkHttpClient,
     private val json: Json,
+    private val connection: BridgeConnection,
 ) {
+
+    /** Overridable only so JVM tests can point at a local server. */
+    internal var endpoint: String = ApiUrls.VOICE + "api/chat/upload"
 
     suspend fun upload(
         uri: Uri,
@@ -69,22 +75,16 @@ class ChatUploader @Inject constructor(
                 ?: error("Could not read that image.")
             require(bytes.size <= MAX_BYTES) { "That image is larger than 8MB." }
 
-            val body = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "file",
-                    displayName(uri),
-                    bytes.toRequestBody(mime.toMediaType()),
-                )
-                .addFormDataPart("username", username)
-                .addFormDataPart("userId", userId.toString())
-                .addFormDataPart("channelId", channelId.toString())
-                .build()
-
-            val request = Request.Builder()
-                .url(ApiUrls.VOICE + "api/chat/upload")
-                .post(body)
-                .build()
+            val request = buildUploadRequest(
+                url = endpoint,
+                sessionToken = connection.sessionToken,
+                bytes = bytes,
+                mime = mime,
+                filename = displayName(uri),
+                userId = userId,
+                username = username,
+                channelId = channelId,
+            )
 
             client.newCall(request).execute().use { response ->
                 val payload = response.body?.string().orEmpty()
@@ -118,7 +118,32 @@ class ChatUploader @Inject constructor(
     @Serializable
     private data class UploadError(val error: String = "")
 
-    private companion object {
+    internal companion object {
+        /** The upload call, kept free of Android types so it can be checked on the JVM. */
+        fun buildUploadRequest(
+            url: String,
+            sessionToken: String?,
+            bytes: ByteArray,
+            mime: String,
+            filename: String,
+            userId: Int,
+            username: String,
+            channelId: Int,
+        ): Request {
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", filename, bytes.toRequestBody(mime.toMediaType()))
+                .addFormDataPart("username", username)
+                .addFormDataPart("userId", userId.toString())
+                .addFormDataPart("channelId", channelId.toString())
+                .build()
+            return Request.Builder()
+                .url(url)
+                .apply { if (!sessionToken.isNullOrEmpty()) header("Authorization", "Bearer $sessionToken") }
+                .post(body)
+                .build()
+        }
+
         const val TAG = "ChatUploader"
         const val MAX_BYTES = 8 * 1024 * 1024
         val ALLOWED_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")

@@ -146,6 +146,8 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
                 items(turns, key = { it.atMillis }) { TurnCard(it) }
             }
 
+            item { CommandsCard() }
+
             item { SectionHeader("Settings") }
             item {
                 TokenCard(
@@ -535,6 +537,45 @@ private fun BackgroundCard() {
                 onClick = { launcher.launch(batteryExemptionIntent(context)) },
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Allow") }
+        }
+    }
+}
+
+/**
+ * The commands Lexi answers by itself. Worth listing, because they are the ones that keep
+ * working when the brain is off — and nothing else on screen would tell you that.
+ */
+@Composable
+private fun CommandsCard() {
+    Card(colors = panelColors()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Works without the brain", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Music comes from your Lexicon library and is handled on the phone, so these work " +
+                    "even when alison is off:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            for (example in listOf(
+                "“Play Dragon Rider”",
+                "“Shuffle all my music”",
+                "“Play the playlist Bane on shuffle”",
+                "“Join the live stream”  — skip then votes with the room",
+                "“Skip”  ·  “Stop”",
+            )) {
+                Text(
+                    example,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Text(
+                "Anything else goes to Obrenna, which needs alison awake.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }

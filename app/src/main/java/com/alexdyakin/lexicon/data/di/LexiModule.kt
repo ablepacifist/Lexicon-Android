@@ -1,7 +1,13 @@
 package com.alexdyakin.lexicon.data.di
 
 import android.content.Context
+import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.lexi.BrainClient
+import com.alexdyakin.lexicon.lexi.LiveStreamFollower
+import com.alexdyakin.lexicon.lexi.LiveStreamFollowing
+import com.alexdyakin.lexicon.lexi.LexiMedia
+import com.alexdyakin.lexicon.lexi.LexiVoicePlayback
+import com.alexdyakin.lexicon.lexi.LexiconVoiceLibrary
 import com.alexdyakin.lexicon.lexi.SpeechModelInstaller
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.Module
@@ -9,6 +15,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -51,5 +60,35 @@ object LexiModule {
             .build(),
         modelDir = context.filesDir.resolve("lexi/vosk"),
         workDir = context.cacheDir.resolve("lexi-speech-model"),
+    )
+
+    /**
+     * The spoken media commands, over the app's own library APIs and background player, so a
+     * voice request behaves exactly like tapping play.
+     */
+    @Provides
+    @Singleton
+    fun lexiMedia(
+        library: LexiconVoiceLibrary,
+        playback: LexiVoicePlayback,
+        liveStream: LiveStreamFollowing,
+    ): LexiMedia = LexiMedia(library, playback, liveStream)
+
+    /**
+     * Follows the communal stream over the same SSE feed the live stream screen uses, on the
+     * client built for streams (no read timeout, so an idle feed is not killed).
+     */
+    @Provides
+    @Singleton
+    fun liveStreamFollowing(
+        @SseOkHttp sse: OkHttpClient,
+        json: Json,
+        library: LexiconVoiceLibrary,
+    ): LiveStreamFollowing = LiveStreamFollower(
+        client = sse,
+        json = json,
+        updatesUrl = ApiUrls.LEXICON + "api/livestream/updates?channel=music",
+        resolveTrack = { id -> library.mediaById(id) },
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     )
 }

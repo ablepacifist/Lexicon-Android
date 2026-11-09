@@ -6,6 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.bridge.BridgeConnection
+import com.alexdyakin.lexicon.data.LiveStreamState
+import com.alexdyakin.lexicon.data.MediaFile
+import com.alexdyakin.lexicon.data.SkipStreamRequest
 import com.alexdyakin.lexicon.data.bridge.BridgeCredentials
 import com.alexdyakin.lexicon.voice.VoiceSession
 import kotlinx.coroutines.CoroutineScope
@@ -49,8 +52,34 @@ class LexiLiveTurnTest {
         override suspend fun mintSsoToken(): String = error("not used")
     }
 
+    // This test asks a question. The media commands have their own JVM tests, so these
+    // stubs only exist to satisfy the constructor. Separate objects because both
+    // VoicePlayback and LiveStreamFollowing declare stop(), one suspending and one not.
+    private object NoLibrary : VoiceLibrary {
+        override val userId: Int? = null
+        override suspend fun search(query: String) = emptyList<MediaFile>()
+        override suspend fun mediaById(id: Int): MediaFile? = null
+        override suspend fun ownedMedia(userId: Int) = emptyList<MediaFile>()
+        override suspend fun playlists(userId: Int) = emptyList<NamedPlaylist>()
+        override suspend fun playlistTracks(playlistId: Int) = emptyList<MediaFile>()
+        override suspend fun liveStreamState() = LiveStreamState()
+        override suspend fun voteToSkipLiveStream(request: SkipStreamRequest) = Unit
+    }
+
+    private object NoPlayback : VoicePlayback {
+        override val isPlaying = false
+        override suspend fun play(tracks: List<MediaFile>, shuffle: Boolean, startPositionMs: Long) = Unit
+        override suspend fun next() = Unit
+        override suspend fun stop() = Unit
+    }
+
+    private object NoFollowing : LiveStreamFollowing {
+        override fun start(onTrack: suspend (MediaFile) -> Unit) = Unit
+        override fun stop() = Unit
+    }
+
     @Test
-    fun answersATypedQuestionOutLoud() = runBlocking {
+    fun answersATypedQuestionOutLoud(): Unit = runBlocking {
         val token = InstrumentationRegistry.getArguments().getString("lexiToken")
         assumeTrue("pass -e lexiToken to run the live turn", !token.isNullOrBlank())
 
@@ -69,6 +98,7 @@ class LexiLiveTurnTest {
                 modelDir = app.filesDir.resolve("lexi/vosk"),
                 workDir = app.cacheDir.resolve("lexi-speech-model"),
             ),
+            media = LexiMedia(NoLibrary, NoPlayback, NoFollowing),
             voiceCall = VoiceSession(BridgeConnection(http, SignedOut, Json)),
         )
 
@@ -96,6 +126,56 @@ class LexiLiveTurnTest {
             watcher.cancel()
             assistant.stop()
             settings.setAgentToken("")
+        }
+    }
+
+    /**
+     * A brain outage must degrade, not break: Lexi says so and goes back to listening. Runs
+     * without a token, because an invalid one and an absent brain look the same from here —
+     * the tunnel answers 530 when alison is off, which is the common case.
+     *
+     * Tolerant of alison actually being up: then the turn simply succeeds. Either way, what
+     * is being checked is that the session survives the turn.
+     */
+    @Test
+    fun survivesABrainOutage(): Unit = runBlocking {
+        instrumentation.uiAutomation.grantRuntimePermission(app.packageName, Manifest.permission.RECORD_AUDIO)
+        val settings = LexiSettingsStore(app)
+        // Leave the device's real token exactly as it was.
+        val saved = settings.agentToken()
+        settings.setAgentToken("x".repeat(40))
+
+        val http = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
+        val assistant = LexiAssistant(
+            context = app,
+            settingsStore = settings,
+            tokenStore = TokenStore(app),
+            brain = BrainClient(http),
+            speechModels = SpeechModelInstaller(
+                http = http,
+                modelDir = app.filesDir.resolve("lexi/vosk"),
+                workDir = app.cacheDir.resolve("lexi-speech-model"),
+            ),
+            media = LexiMedia(NoLibrary, NoPlayback, NoFollowing),
+            voiceCall = VoiceSession(BridgeConnection(http, SignedOut, Json)),
+        )
+
+        try {
+            assistant.start()
+            withTimeout(120_000) { assistant.state.first { it == LexiState.Listening || it is LexiState.Failed } }
+            assertTrue("Lexi did not start", assistant.state.value == LexiState.Listening)
+
+            assistant.askText("What day of the week is it?")
+            val turn = withTimeout(180_000) { assistant.turns.first { it.isNotEmpty() }.first() }
+            Log.i(TAG, "outage turn: failed=${turn.failed} reply=\"${turn.reply}\"")
+            if (turn.failed) {
+                assertTrue("should explain itself: ${turn.reply}", turn.reply.contains("brain", ignoreCase = true))
+            }
+            // The point of the test: still listening afterwards, not dead.
+            withTimeout(15_000) { assistant.state.first { it == LexiState.Listening } }
+        } finally {
+            assistant.stop()
+            settings.setAgentToken(saved.orEmpty())
         }
     }
 

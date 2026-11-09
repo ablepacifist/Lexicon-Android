@@ -4,7 +4,6 @@ import android.util.Log
 import com.alexdyakin.lexicon.data.LiveStreamState
 import com.alexdyakin.lexicon.data.MediaFile
 import com.alexdyakin.lexicon.data.SkipStreamRequest
-import com.alexdyakin.lexicon.data.liveStreamStartPosition
 import java.io.IOException
 
 /** What Lexi can do to the player. An interface so the rules below are testable off-device. */
@@ -45,8 +44,12 @@ data class NamedPlaylist(val id: Int, val name: String)
 class LexiMedia(
     private val library: VoiceLibrary,
     private val playback: VoicePlayback,
+    private val liveStream: LiveStreamFollowing,
 ) {
-    /** True while the communal stream is what is playing, so "skip" votes instead of skipping. */
+    /**
+     * True for the whole live-stream session, including the gap between tracks, so a spoken
+     * "skip" always votes with the room instead of skipping locally.
+     */
     @Volatile private var liveStreamJoined = false
 
     /** Media commands need a signed-in user to search anyone's library. */
@@ -80,7 +83,7 @@ class LexiMedia(
     }
 
     private suspend fun stop(say: suspend (String) -> Unit): String {
-        liveStreamJoined = false
+        leaveLiveStream()
         playback.stop()
         say("Okay, stopped.")
         return "stopped"
@@ -123,9 +126,14 @@ class LexiMedia(
             return "live stream empty"
         }
         say("Joining the live stream.")
-        // Joins where everyone else is, using the same rule the live stream screen uses.
-        playback.play(listOf(media), startPositionMs = liveStreamStartPosition(state))
+        // From the start, never seeking to the server's reported position: it goes stale
+        // whenever nobody is listening, and seeking past the end of a track plays silence.
+        // Being a few seconds behind the room is the lesser evil, and the same call the Pi
+        // made after hitting exactly that.
+        playback.play(listOf(media))
         liveStreamJoined = true
+        // Keep up when someone else skips, rather than playing one track and falling behind.
+        liveStream.start { track -> playback.play(listOf(track)) }
         return "live stream"
     }
 
@@ -135,7 +143,7 @@ class LexiMedia(
             say("I couldn't find $query in your library.")
             return "not found"
         }
-        liveStreamJoined = false
+        leaveLiveStream()
         val title = chosen.displayTitle.ifBlank { query }
         say("Playing $title.")
         playback.play(listOf(chosen))
@@ -163,10 +171,16 @@ class LexiMedia(
             say("There's nothing to play in $label.")
             return "empty"
         }
-        liveStreamJoined = false
+        leaveLiveStream()
         say(if (intent.shuffle) "Shuffling $label." else "Playing $label.")
         playback.play(tracks, shuffle = intent.shuffle)
         return label
+    }
+
+    /** Switching to anything else means we are no longer following the room. */
+    private fun leaveLiveStream() {
+        liveStreamJoined = false
+        liveStream.stop()
     }
 
     /** The Pi's rule: prefer music, then audiobooks, else whatever came back first. */

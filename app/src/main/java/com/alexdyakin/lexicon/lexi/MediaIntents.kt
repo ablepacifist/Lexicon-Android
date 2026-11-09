@@ -18,8 +18,10 @@ sealed interface MediaIntent {
 }
 
 // An optional leading wake word ("hey jarvis ..."), in case part of it lands in the
-// transcript, plus a polite prefix.
-private const val LEAD = """^\s*(?:hey\s+\w+[,.\s]+)?(?:can you\s+|could you\s+|please\s+)?"""
+// transcript, then any run of filler and polite words. Without those, "just stop" fell
+// through to the brain — which is usually off, so the command simply failed.
+private const val LEAD = """^\s*(?:hey\s+\w+[,.\s]+)?""" +
+    """(?:(?:just|okay|ok|yeah|yes|please|can you|could you|would you|hey)\s+)*"""
 private const val TRAIL = """[.?!]*\s*$"""
 
 private val IGNORE_CASE = setOf(RegexOption.IGNORE_CASE)

@@ -82,6 +82,7 @@ class LexiAssistant @Inject constructor(
     private val tokenStore: TokenStore,
     private val brain: BrainClient,
     private val speechModels: SpeechModelInstaller,
+    private val media: LexiMedia,
     private val voiceCall: VoiceSession,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -203,6 +204,13 @@ class LexiAssistant @Inject constructor(
                 }
         } catch (e: MicrophoneLost) {
             fail(e.message!!)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Same reason as in runTurn, one level up: whatever happens, report it on the
+            // screen rather than letting it reach the uncaught-exception handler.
+            Log.w(TAG, "listening session failed", e)
+            fail(e.message ?: "Lexi stopped unexpectedly.")
         } finally {
             engines = null
             withContext(NonCancellable) { loaded.close() }
@@ -346,6 +354,24 @@ class LexiAssistant @Inject constructor(
         }
 
         try {
+            // Media commands are answered here, before the brain is consulted at all. That is
+            // what keeps music working when alison is off, and it saves a round trip to
+            // another machine for "stop".
+            val intent = matchMediaIntent(heard)
+            if (intent != null) {
+                val spoken = StringBuilder()
+                val label = media.handle(intent) { line ->
+                    say(line)
+                    // Wait, so a confirmation finishes before music starts over the top of it.
+                    engines.speaker.awaitSilence()
+                    spoken.append(if (spoken.isEmpty()) "" else " ").append(line)
+                }
+                Log.d(TAG, "media intent handled: $label")
+                _turns.value = (listOf(LexiTurn(heard, spoken.toString(), false, System.currentTimeMillis())) + _turns.value)
+                    .take(MAX_TURNS)
+                return
+            }
+
             try {
                 val token = settingsStore.agentToken() ?: throw MissingToken()
                 val settings = settingsStore.settings.value
@@ -378,6 +404,19 @@ class LexiAssistant @Inject constructor(
         } catch (e: CancellationException) {
             engines.speaker.stop()
             throw e
+        } catch (e: Throwable) {
+            // An always-on assistant must outlive any single turn. Without this, an
+            // unexpected failure — a malformed server reply, a bug in a command — would
+            // cancel the listening session and leave the phone silently deaf.
+            Log.w(TAG, "turn failed unexpectedly", e)
+            failed = true
+            reply = UNEXPECTED_FAILURE
+            runCatching {
+                say(reply)
+                engines.speaker.awaitSilence()
+            }
+            _turns.value = (listOf(LexiTurn(heard, reply, true, System.currentTimeMillis())) + _turns.value)
+                .take(MAX_TURNS)
         } finally {
             engines.focus.release()
             if (turnScope?.isActive == true) backToWake(engines) else phase.set(Phase.WAKE)
@@ -446,6 +485,7 @@ class LexiAssistant @Inject constructor(
         /** The Pi's fallback bucket when no Lexicon user is known. */
         const val DEFAULT_ACCOUNT_ID = "local-default"
         const val NO_ANSWER = "I didn't get an answer back."
+        const val UNEXPECTED_FAILURE = "Sorry, something went wrong."
     }
 }
 

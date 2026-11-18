@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Compose supplies the real theming; this only covers the window before
-         the first frame, so the app doesn't flash white on launch. -->
+         the first frame, so the app doesn't flash a different colour on launch. -->
     <style name="Theme.Lexicon" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ink</item>
-        <item name="android:statusBarColor">@color/ink</item>
-        <item name="android:navigationBarColor">@color/ink</item>
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:statusBarColor">@color/ground</item>
+        <item name="android:navigationBarColor">@color/ground</item>
+        <!-- The app is dark by design (see LexiconTheme). Without this, a device with
+             "force dark" on would try to auto-invert an already-dark UI. -->
+        <item name="android:forceDarkAllowed" tools:targetApi="29">false</item>
     </style>
 </resources>

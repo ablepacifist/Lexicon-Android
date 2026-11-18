@@ -33,13 +33,19 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.ui.components.EmptyBox
+import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.PlayPauseButton
+import com.alexdyakin.lexicon.ui.components.TransportBar
+import com.alexdyakin.lexicon.ui.components.TransportButton
+import com.alexdyakin.lexicon.ui.theme.Sizes
+import com.alexdyakin.lexicon.ui.theme.Spacing
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import java.util.concurrent.TimeUnit
 
 private val SPEEDS = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
 
-/** Uniform touch-target width for every transport control, so the row stays centred. */
-private val CONTROL_SLOT = 48.dp
+/** One transport slot. Matches TransportBar's contract, so this button mirrors the others. */
+private val CONTROL_SLOT = Sizes.transportSlot
 
 @Composable
 fun PlayerScreen(
@@ -69,7 +75,7 @@ fun PlayerScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 28.dp),
+                .padding(horizontal = Spacing.gutter),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -118,107 +124,67 @@ fun PlayerScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            // Gentle settle on the play button whenever playback starts or stops.
-            val playScale by animateFloatAsState(
-                targetValue = if (state.isPlaying) 1f else 0.94f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                label = "playScale",
-            )
-
-            // Every control occupies the same 48.dp slot so the row stays visually
-            // centred whatever combination of audiobook buttons is showing.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-            ) {
-                IconButton(onClick = player::toggleShuffle, modifier = Modifier.size(CONTROL_SLOT)) {
-                    Icon(
-                        Icons.Filled.Shuffle,
-                        contentDescription = if (state.shuffle) "Shuffle on" else "Shuffle off",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.alpha(if (state.shuffle) 1f else 0.4f),
+            // This row used to lay seven fixed 48dp controls into 304dp of space and centre the
+            // overflow, so in audiobook mode shuffle was clipped off the left edge and the speed
+            // button off the right. TransportBar keeps at most two controls a side — 288dp, which
+            // fits a 320dp phone — and pushes shuffle and speed into a second wrapped row rather
+            // than letting anything fall off the screen.
+            TransportBar(
+                center = {
+                    PlayPauseButton(
+                        playing = state.isPlaying,
+                        onClick = player::togglePlayPause,
                     )
-                }
-                if (state.isAudiobook) {
-                    SeekBySecondsButton(
-                        seconds = 15,
-                        forward = false,
-                        onClick = { player.seekBy(-15_000L) },
-                    )
-                }
-                IconButton(
-                    onClick = player::previous,
-                    enabled = state.hasPrevious,
-                    modifier = Modifier.size(CONTROL_SLOT),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipPrevious,
+                },
+                leading = {
+                    if (state.isAudiobook) {
+                        SeekBySecondsButton(
+                            seconds = 15,
+                            forward = false,
+                            onClick = { player.seekBy(-15_000L) },
+                        )
+                    }
+                    TransportButton(
+                        icon = Icons.Filled.SkipPrevious,
                         contentDescription = "Previous",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp),
+                        onClick = player::previous,
+                        enabled = state.hasPrevious,
                     )
-                }
-
-                // Play/pause keeps its larger slot but is padded symmetrically so it
-                // does not pull the row off centre.
-                FilledIconButton(
-                    onClick = player::togglePlayPause,
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp)
-                        .size(72.dp)
-                        .scale(playScale),
-                ) {
-                    // Crossfade rather than a hard swap between the two states.
-                    AnimatedContent(
-                        targetState = state.isPlaying,
-                        transitionSpec = {
-                            (fadeIn(tween(140)) + scaleIn(tween(140), initialScale = 0.7f))
-                                .togetherWith(fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.7f))
-                        },
-                        label = "playPause",
-                    ) { playing ->
-                        Icon(
-                            if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (playing) "Pause" else "Play",
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = player::next,
-                    enabled = state.hasNext,
-                    modifier = Modifier.size(CONTROL_SLOT),
-                ) {
-                    Icon(
-                        Icons.Filled.SkipNext,
+                },
+                trailing = {
+                    TransportButton(
+                        icon = Icons.Filled.SkipNext,
                         contentDescription = "Next",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp),
+                        onClick = player::next,
+                        enabled = state.hasNext,
                     )
-                }
-                if (state.isAudiobook) {
-                    SeekBySecondsButton(
-                        seconds = 30,
-                        forward = true,
-                        onClick = { player.seekBy(30_000L) },
-                    )
-                    IconButton(
-                        onClick = {
-                            val i = SPEEDS.indexOfFirst { it >= state.speed - 0.01f }
-                            viewModel.setSpeed(SPEEDS[(if (i < 0) 1 else i + 1) % SPEEDS.size])
-                        },
-                        modifier = Modifier.size(CONTROL_SLOT),
-                    ) {
-                        Text(
-                            "${trimSpeed(state.speed)}×",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                    if (state.isAudiobook) {
+                        SeekBySecondsButton(
+                            seconds = 30,
+                            forward = true,
+                            onClick = { player.seekBy(30_000L) },
                         )
                     }
-                }
-            }
+                },
+                extras = {
+                    LexChip(
+                        label = "Shuffle",
+                        selected = state.shuffle,
+                        onClick = player::toggleShuffle,
+                        leadingIcon = Icons.Filled.Shuffle,
+                    )
+                    if (state.isAudiobook) {
+                        LexChip(
+                            label = "${trimSpeed(state.speed)}×",
+                            selected = state.speed != 1f,
+                            onClick = {
+                                val i = SPEEDS.indexOfFirst { it >= state.speed - 0.01f }
+                                viewModel.setSpeed(SPEEDS[(if (i < 0) 1 else i + 1) % SPEEDS.size])
+                            },
+                        )
+                    }
+                },
+            )
 
             Spacer(Modifier.height(12.dp))
             Text(

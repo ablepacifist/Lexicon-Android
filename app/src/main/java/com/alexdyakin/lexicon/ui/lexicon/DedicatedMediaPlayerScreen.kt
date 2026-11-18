@@ -7,7 +7,6 @@ import android.os.Environment
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +21,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Forward30
+import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -89,6 +89,12 @@ import com.alexdyakin.lexicon.data.safeApiCall
 import com.alexdyakin.lexicon.media.PlayerConnection
 import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
+import com.alexdyakin.lexicon.ui.components.ActionRow
+import com.alexdyakin.lexicon.ui.components.LabeledSwitch
+import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.PlayPauseButton
+import com.alexdyakin.lexicon.ui.components.TransportBar
+import com.alexdyakin.lexicon.ui.components.TransportButton
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -623,32 +629,31 @@ private fun AudiobookNowPlayingSection(
                 Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(onClick = onBack30)) {
-                    Text("↺ 30s", color = MediaText, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp))
-                }
-                Box(
-                    modifier = Modifier
-                        .size(60.dp)
-                        .background(Brush.linearGradient(listOf(Color(0xFF667EEA), Color(0xFF764BA2))), CircleShape)
-                        .clickable(onClick = onPlayPause),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp),
+            // The "↺ 30s" / "30s ↻" labels were typographic arrows, which do not tint, do not
+            // scale with the icon size and carry no content description. Real icons now.
+            TransportBar(
+                center = {
+                    PlayPauseButton(
+                        playing = playerState.isPlaying,
+                        onClick = onPlayPause,
+                        size = 60.dp,
                     )
-                }
-                Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(onClick = onForward30)) {
-                    Text("30s ↻", color = MediaText, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp))
-                }
-            }
+                },
+                leading = {
+                    TransportButton(
+                        icon = Icons.Filled.Replay30,
+                        contentDescription = "Back 30 seconds",
+                        onClick = onBack30,
+                    )
+                },
+                trailing = {
+                    TransportButton(
+                        icon = Icons.Filled.Forward30,
+                        contentDescription = "Forward 30 seconds",
+                        onClick = onForward30,
+                    )
+                },
+            )
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("🔊", style = MaterialTheme.typography.titleMedium)
@@ -662,20 +667,14 @@ private fun AudiobookNowPlayingSection(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("⚡ Speed", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Speed", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
+                // Six fixed chips needed ~318dp in a 256dp card, so the last of them were
+                // clipped. ActionRow wraps to a second line instead.
+                ActionRow {
                     listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { sp ->
                         val active = kotlin.math.abs(playerState.speed - sp) < 0.01f
                         val label = if (sp % 1f == 0f) sp.toInt().toString() else sp.toString()
-                        Surface(
-                            color = if (active) MediaAccent else Color.Transparent,
-                            contentColor = if (active) Color.White else MediaAccent,
-                            shape = RoundedCornerShape(16.dp),
-                            border = androidx.compose.foundation.BorderStroke(2.dp, MediaAccent),
-                            modifier = Modifier.clickable { onSpeed(sp) },
-                        ) {
-                            Text("${label}x", modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                        }
+                        LexChip(label = "${label}x", selected = active, onClick = { onSpeed(sp) })
                     }
                 }
             }
@@ -745,47 +744,37 @@ private fun VideoNowPlayingSection(
                         )
                         Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(enabled = playerState.hasPrevious, onClick = onPrevious)) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
-                                Icon(Icons.Filled.SkipPrevious, "Previous", tint = if (playerState.hasPrevious) MediaText else MediaMuted)
-                                Text("Previous", color = if (playerState.hasPrevious) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(60.dp)
-                                .background(Brush.linearGradient(listOf(Color(0xFF667EEA), Color(0xFF764BA2))), CircleShape)
-                                .clickable(onClick = onPlayPause),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(30.dp),
+                    // Symmetric before, but only because both pills were weighted — which meant
+                    // each got 102dp for content needing 116dp, so both labels permanently
+                    // ellipsised to "Previ…". Fixed slots fit without truncating anything.
+                    TransportBar(
+                        center = {
+                            PlayPauseButton(
+                                playing = playerState.isPlaying,
+                                onClick = onPlayPause,
+                                size = 60.dp,
                             )
-                        }
-                        Surface(color = MediaButtonAlt, shape = RoundedCornerShape(50.dp), modifier = Modifier.weight(1f).clickable(enabled = playerState.hasNext, onClick = onNext)) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
-                                Text("Next", color = if (playerState.hasNext) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.Filled.SkipNext, "Next", tint = if (playerState.hasNext) MediaText else MediaMuted)
-                            }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Auto-play", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
-                            Switch(checked = playerState.autoAdvance, onCheckedChange = { onToggleAutoAdvance() }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MediaAccent, uncheckedTrackColor = MediaButtonAlt))
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("🔀 Shuffle", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
-                            Switch(checked = playerState.shuffle, onCheckedChange = { onToggleShuffle() }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MediaAccent, uncheckedTrackColor = MediaButtonAlt))
-                        }
+                        },
+                        leading = {
+                            TransportButton(
+                                icon = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous",
+                                onClick = onPrevious,
+                                enabled = playerState.hasPrevious,
+                            )
+                        },
+                        trailing = {
+                            TransportButton(
+                                icon = Icons.Filled.SkipNext,
+                                contentDescription = "Next",
+                                onClick = onNext,
+                                enabled = playerState.hasNext,
+                            )
+                        },
+                    )
+                    ActionRow {
+                        LabeledSwitch("Auto-play", playerState.autoAdvance, onCheckedChange = { onToggleAutoAdvance() })
+                        LabeledSwitch("Shuffle", playerState.shuffle, onCheckedChange = { onToggleShuffle() })
                     }
                 }
             }
@@ -945,18 +934,6 @@ private fun EditMediaDialog(
     )
 }
 
-@Composable
-private fun PageTabChip(selected: Boolean, text: String, onClick: () -> Unit) {
-    Surface(
-        color = if (selected) MediaButton else MediaButtonAlt,
-        contentColor = MediaText,
-        shape = RoundedCornerShape(999.dp),
-        modifier = Modifier.clickable(onClick = onClick),
-    ) {
-        Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), fontWeight = FontWeight.SemiBold)
-    }
-}
-
 private fun formatMs(ms: Long): String {
     if (ms <= 0) return "0:00"
     val totalSeconds = ms / 1000
@@ -1016,53 +993,35 @@ private fun NowPlayingSection(
                 Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    color = MediaButtonAlt,
-                    shape = RoundedCornerShape(50.dp),
-                    modifier = Modifier.clickable(enabled = playerState.hasPrevious, onClick = onPrevious),
-                ) {
-                    Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = if (playerState.hasPrevious) MediaText else MediaMuted)
-                        Text("Previous", color = if (playerState.hasPrevious) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    modifier = Modifier.size(60.dp).clickable(onClick = onPlayPause),
-                    color = Color.Transparent,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .background(Brush.linearGradient(listOf(Color(0xFF667EEA), Color(0xFF764BA2))), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp),
-                        )
-                    }
-                }
-
-                Surface(
-                    color = MediaButtonAlt,
-                    shape = RoundedCornerShape(50.dp),
-                    modifier = Modifier.clickable(enabled = playerState.hasNext, onClick = onNext),
-                ) {
-                    Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Next", color = if (playerState.hasNext) MediaText else MediaMuted, style = MaterialTheme.typography.labelLarge)
-                        Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = if (playerState.hasNext) MediaText else MediaMuted)
-                    }
-                }
-            }
+            // This is the row that prompted the redesign. Both pills were unweighted and
+            // content-sized, so Compose measured "Previous" first at the ~128dp it wanted and
+            // handed "Next" — measured last — the ~76dp left over when it needed ~99dp. Next came
+            // out narrower, its label clipped, and the play button sat ~14dp right of centre.
+            TransportBar(
+                center = {
+                    PlayPauseButton(
+                        playing = playerState.isPlaying,
+                        onClick = onPlayPause,
+                        size = 60.dp,
+                    )
+                },
+                leading = {
+                    TransportButton(
+                        icon = Icons.Filled.SkipPrevious,
+                        contentDescription = "Previous",
+                        onClick = onPrevious,
+                        enabled = playerState.hasPrevious,
+                    )
+                },
+                trailing = {
+                    TransportButton(
+                        icon = Icons.Filled.SkipNext,
+                        contentDescription = "Next",
+                        onClick = onNext,
+                        enabled = playerState.hasNext,
+                    )
+                },
+            )
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1075,23 +1034,9 @@ private fun NowPlayingSection(
                     )
                     Text("${(playerState.volume * 100).toInt()}%", color = MediaAccent, style = MaterialTheme.typography.labelMedium)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Auto-play", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
-                        Switch(
-                            checked = playerState.autoAdvance,
-                            onCheckedChange = { onToggleAutoAdvance() },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MediaAccent, uncheckedTrackColor = MediaButtonAlt),
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("\uD83D\uDD00 Shuffle", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
-                        Switch(
-                            checked = playerState.shuffle,
-                            onCheckedChange = { onToggleShuffle() },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MediaAccent, uncheckedTrackColor = MediaButtonAlt),
-                        )
-                    }
+                ActionRow {
+                    LabeledSwitch("Auto-play", playerState.autoAdvance, onCheckedChange = { onToggleAutoAdvance() })
+                    LabeledSwitch("Shuffle", playerState.shuffle, onCheckedChange = { onToggleShuffle() })
                 }
             }
         }

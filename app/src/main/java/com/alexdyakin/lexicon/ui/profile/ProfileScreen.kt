@@ -59,6 +59,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -85,6 +87,9 @@ data class ProfileUiState(
     val update: AppUpdateUiState = AppUpdateUiState(),
 )
 
+/** Kotlin's stdlib stops at Triple; this just lets the parallel fetch destructure. */
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val profileApi: ProfileApi, private val alchemyApi: AlchemyApi, private val pokemonApi: PokemonApi,
@@ -98,10 +103,16 @@ class ProfileViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, message = null)
         val id = tokenStore.userId
-        val lexicon = safeApiCall { profileApi.player(id) }.successOrNull
-        val alchemy = safeApiCall { alchemyApi.player(id) }.successOrNull
-        val pokemon = safeApiCall { pokemonApi.playerStats() }.successOrNull
-        val prefs = safeApiCall { profileApi.notificationPrefs(id) }.successOrNull
+        // Four independent calls to three different servers, previously made one after another
+        // so the screen waited out four round trips before it could draw. The avatar still
+        // comes last because it needs the username from the first call.
+        val (lexicon, alchemy, pokemon, prefs) = coroutineScope {
+            val l = async { safeApiCall { profileApi.player(id) }.successOrNull }
+            val a = async { safeApiCall { alchemyApi.player(id) }.successOrNull }
+            val p = async { safeApiCall { pokemonApi.playerStats() }.successOrNull }
+            val n = async { safeApiCall { profileApi.notificationPrefs(id) }.successOrNull }
+            Quad(l.await(), a.await(), p.await(), n.await())
+        }
         val avatarPath = lexicon?.username?.takeIf { it.isNotBlank() }?.let { safeApiCall { profileApi.avatar(it) }.successOrNull?.avatarUrl }
         _state.value = ProfileUiState(
             loading = false,

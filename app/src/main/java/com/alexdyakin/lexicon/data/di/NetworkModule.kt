@@ -3,6 +3,7 @@ package com.alexdyakin.lexicon.data.di
 import android.content.Context
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.AuthInterceptor
+import com.alexdyakin.lexicon.BuildConfig
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.api.AlchemyApi
 import com.alexdyakin.lexicon.data.api.AuthApi
@@ -75,8 +76,15 @@ object NetworkModule {
         @ApplicationContext context: Context,
         tokenStore: TokenStore,
     ): OkHttpClient {
+        // Debug builds only. This used to be added unconditionally, and since the release
+        // build has no minification to strip it, every release request paid to format a log
+        // line nobody could read.
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
         // MobileTokenAuthFilter calls getSession(true), so without a cookie jar every
         // bearer request mints a fresh server-side session. This matches the browser.

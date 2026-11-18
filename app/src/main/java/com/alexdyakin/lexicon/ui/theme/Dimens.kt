@@ -72,6 +72,12 @@ object Sizes {
     val avatarSm = 32.dp
     val avatar = 40.dp
     val avatarLg = 80.dp
+
+    /**
+     * The trailing action slot in a [com.alexdyakin.lexicon.ui.components.ListRow]. Fixed, so a
+     * button whose label changes length cannot shift the row around it.
+     */
+    val listAction = 96.dp
 }
 
 /** Surface elevation. Kept shallow — the palette is almost flat, so shadows do little work. */

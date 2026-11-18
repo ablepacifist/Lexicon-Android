@@ -16,14 +16,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -32,6 +38,7 @@ import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -91,25 +98,22 @@ import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
 import com.alexdyakin.lexicon.ui.components.ActionRow
 import com.alexdyakin.lexicon.ui.components.LabeledSwitch
+import com.alexdyakin.lexicon.ui.components.LexButton
 import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.LexIconButton
+import com.alexdyakin.lexicon.ui.components.LexTone
 import com.alexdyakin.lexicon.ui.components.PlayPauseButton
 import com.alexdyakin.lexicon.ui.components.TransportBar
 import com.alexdyakin.lexicon.ui.components.TransportButton
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import com.alexdyakin.lexicon.ui.theme.Sizes
+import com.alexdyakin.lexicon.ui.theme.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.random.Random
-
-private val MediaBg = Color(0xFF1A1A2E)
-private val MediaPanel = Color(0xFF16213E)
-private val MediaButton = Color(0xFF0F3460)
-private val MediaButtonAlt = Color(0xFF2A2A4A)
-private val MediaText = Color(0xFFE0E0E0)
-private val MediaMuted = Color(0xFFAAAAAA)
-private val MediaAccent = Color(0xFF667EEA)
 
 enum class DedicatedMediaMode(val title: String, val mediaTypeHint: String, val browserTitle: String, val searchNoun: String) {
     AUDIO("Audio Player", "MUSIC", "Music Browser", "music"),
@@ -383,33 +387,24 @@ fun DedicatedMediaPlayerScreen(
         viewModel.initialize(mode, initialMediaId, initialPlaylistId)
     }
 
-    ScreenScaffold(title = mode.title, onBack = onBack) { padding ->
+    ScreenScaffold(title = mode.title, onBack = onBack, gutter = Spacing.gutter) { padding ->
         if (state.loading) {
             LoadingBox(padding)
             return@ScreenScaffold
         }
 
+        // The `.background(Brush.verticalGradient(MediaBg, MaterialTheme.colorScheme.surface))` that used to be here
+        // loaded the shared chrome and then painted over it, which is how this screen came to be
+        // the one blue-purple page in a gold-and-parchment app — and now the one page that would
+        // not have matched the new palette either. The scaffold's ground shows through.
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .background(
-                    Brush.verticalGradient(listOf(MediaBg, MediaPanel))
-                ),
-            contentPadding = PaddingValues(bottom = 24.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = Spacing.xl),
         ) {
-            item {
-                Surface(
-                    color = MediaPanel,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(mode.title, color = MediaText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text("Lexicon media player", color = MediaMuted, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            // A card here repeated `mode.title` — the exact string the app bar directly above it
+            // was already showing — with "Lexicon media player" under it. Both are gone.
 
             item {
                 when (mode) {
@@ -451,39 +446,38 @@ fun DedicatedMediaPlayerScreen(
 
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (state.playlistMode) "📋 ${state.selectedPlaylist?.name ?: "Playlist"}" else mode.browserTitle,
-                        color = MediaText,
+                        if (state.playlistMode) {
+                            state.selectedPlaylist?.name ?: "Playlist"
+                        } else {
+                            mode.browserTitle
+                        },
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (state.playlistMode) {
-                        Surface(
-                            color = Color(0xFFE74C3C),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.clickable { viewModel.exitPlaylistMode() },
-                        ) {
-                            Text(
-                                "Exit Playlist Mode",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            )
-                        }
+                        // Was a clickable `Surface` painted in a hardcoded red with white text —
+                        // no ripple, no disabled state, and below the touch minimum at 6dp of
+                        // vertical padding.
+                        LexButton(
+                            text = "Exit playlist",
+                            onClick = { viewModel.exitPlaylistMode() },
+                            tone = LexTone.Destructive,
+                        )
                     }
                 }
             }
 
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                    UnderlineTab("📚 Library", state.tab == PlayerPageTab.LIBRARY, Modifier.weight(1f)) { viewModel.setTab(0) }
-                    UnderlineTab("📋 Playlists", state.tab == PlayerPageTab.PLAYLISTS, Modifier.weight(1f)) { viewModel.setTab(1) }
+                Row(Modifier.fillMaxWidth()) {
+                    UnderlineTab("Library", state.tab == PlayerPageTab.LIBRARY, Modifier.weight(1f)) { viewModel.setTab(0) }
+                    UnderlineTab("Playlists", state.tab == PlayerPageTab.PLAYLISTS, Modifier.weight(1f)) { viewModel.setTab(1) }
                 }
             }
 
@@ -494,41 +488,44 @@ fun DedicatedMediaPlayerScreen(
                     placeholder = {
                         Text(
                             if (state.tab == PlayerPageTab.LIBRARY) "Search ${mode.searchNoun}..." else "Search playlists...",
-                            color = Color(0xFF666666),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = MediaMuted) },
+                    leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF0E1628),
-                        unfocusedContainerColor = Color(0xFF0E1628),
-                        focusedBorderColor = MediaAccent,
-                        unfocusedBorderColor = MediaButtonAlt,
-                        focusedTextColor = MediaText,
-                        unfocusedTextColor = MediaText,
-                        cursorColor = MediaAccent,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        cursorColor = MaterialTheme.colorScheme.primary,
                     ),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
                 )
             }
 
             if (state.tab == PlayerPageTab.LIBRARY && !state.playlistMode) {
                 item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FilterPill("All", state.libraryVisibility == LibraryVisibility.ALL) { viewModel.setLibraryVisibility(LibraryVisibility.ALL) }
-                        FilterPill("Personal", state.libraryVisibility == LibraryVisibility.PERSONAL) { viewModel.setLibraryVisibility(LibraryVisibility.PERSONAL) }
-                        FilterPill("Public", state.libraryVisibility == LibraryVisibility.PUBLIC) { viewModel.setLibraryVisibility(LibraryVisibility.PUBLIC) }
+                    // Three hand-rolled `Surface` pills, which had neither ripple nor a selected
+                    // state Material would recognise, in a plain Row.
+                    ActionRow(Modifier.padding(vertical = Spacing.xxs)) {
+                        LibraryVisibility.entries.forEach { option ->
+                            LexChip(
+                                label = option.name.lowercase().replaceFirstChar { it.uppercase() },
+                                selected = state.libraryVisibility == option,
+                                onClick = { viewModel.setLibraryVisibility(option) },
+                            )
+                        }
                     }
                 }
             }
 
             state.error?.let { err ->
                 item {
-                    Text(err, color = Color(0xFFE74C3C), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = Spacing.sm))
                 }
             }
 
@@ -537,7 +534,7 @@ fun DedicatedMediaPlayerScreen(
                     item { EmptyBox(PaddingValues(24.dp), "No ${mode.searchNoun} files found") }
                 } else {
                     items(visibleLibrary, key = { it.id }) { media ->
-                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        Box(Modifier.padding(vertical = Spacing.xs)) {
                             AudioItemRow(
                                 media = media,
                                 active = playerState.mediaId == media.id.toString(),
@@ -567,7 +564,7 @@ fun DedicatedMediaPlayerScreen(
                     item { EmptyBox(PaddingValues(24.dp), "No playlists found") }
                 } else {
                     items(visiblePlaylists, key = { it.id }) { playlist ->
-                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        Box(Modifier.padding(vertical = Spacing.xs)) {
                             PlaylistMiniCard(playlist) {
                                 viewModel.loadPlaylist(playlist.id)
                                 if (mode == DedicatedMediaMode.VIDEO) onOpenPlayer()
@@ -593,14 +590,14 @@ private fun AudiobookNowPlayingSection(
     onSpeed: (Float) -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MediaPanel),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
     ) {
         if (playerState.mediaId == null) {
             Text(
-                "📚 Select an audiobook to start listening",
-                color = MediaMuted,
+                "Select an audiobook to start listening",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 16.dp),
             )
@@ -608,25 +605,25 @@ private fun AudiobookNowPlayingSection(
         }
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("NOW PLAYING", color = Color(0xFF888888), style = MaterialTheme.typography.labelMedium, letterSpacing = 1.5.sp)
-                Text(playerState.title.ifBlank { "Untitled" }, color = Color.White, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("NOW PLAYING", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.5.sp)
+                Text(playerState.title.ifBlank { "Untitled" }, color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (playerState.subtitle.isNotBlank()) {
-                    Text(playerState.subtitle, color = MediaMuted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(playerState.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (inPlaylist && playlistName.isNotBlank()) {
-                    Text("📚 $playlistName", color = MediaAccent, style = MaterialTheme.typography.labelMedium)
+                    Text(playlistName, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                 }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(formatMs(playerState.positionMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                Text(formatMs(playerState.positionMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 Slider(
                     value = playerState.progress,
                     onValueChange = onSeek,
                     modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = MediaAccent, activeTrackColor = MediaAccent, inactiveTrackColor = MediaButtonAlt),
+                    colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                Text(formatMs(playerState.durationMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
             }
 
             // The "↺ 30s" / "30s ↻" labels were typographic arrows, which do not tint, do not
@@ -656,18 +653,23 @@ private fun AudiobookNowPlayingSection(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("🔊", style = MaterialTheme.typography.titleMedium)
+                Icon(
+                    Icons.Filled.VolumeUp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(Sizes.icon),
+                )
                 Slider(
                     value = playerState.volume,
                     onValueChange = onVolume,
                     modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = MediaAccent, activeTrackColor = MediaAccent, inactiveTrackColor = MediaButtonAlt),
+                    colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Text("${(playerState.volume * 100).toInt()}%", color = MediaAccent, style = MaterialTheme.typography.labelMedium)
+                Text("${(playerState.volume * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Speed", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelLarge)
+                Text("Speed", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelLarge)
                 // Six fixed chips needed ~318dp in a 256dp card, so the last of them were
                 // clipped. ActionRow wraps to a second line instead.
                 ActionRow {
@@ -694,9 +696,9 @@ private fun VideoNowPlayingSection(
     onToggleShuffle: () -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MediaPanel),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
@@ -721,28 +723,28 @@ private fun VideoNowPlayingSection(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Text("Select a video to start watching", color = MediaMuted, textAlign = TextAlign.Center)
+                    Text("Select a video to start watching", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 }
             }
 
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().padding(bottom = Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 Text(
                     if (playerState.mediaId != null) playerState.title.ifBlank { "Untitled video" } else "Nothing playing",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (playerState.mediaId != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(formatMs(playerState.positionMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                        Text(formatMs(playerState.positionMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                         Slider(
                             value = playerState.progress,
                             onValueChange = onSeek,
                             modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = MediaAccent, activeTrackColor = MediaAccent, inactiveTrackColor = MediaButtonAlt),
+                            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                         )
-                        Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                        Text(formatMs(playerState.durationMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     }
                     // Symmetric before, but only because both pills were weighted — which meant
                     // each got 102dp for content needing 116dp, so both labels permanently
@@ -790,33 +792,22 @@ private fun UnderlineTab(text: String, selected: Boolean, modifier: Modifier = M
     ) {
         Text(
             text,
-            color = if (selected) MediaAccent else Color(0xFF888888),
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            modifier = Modifier.padding(vertical = 10.dp),
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // The whole tab is the tap target, so it has to clear the touch minimum; 10dp of
+            // vertical padding around a single line left it around 30dp tall.
+            modifier = Modifier
+                .heightIn(min = Sizes.touch)
+                .wrapContentHeight(Alignment.CenterVertically)
+                .padding(horizontal = Spacing.sm),
         )
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(3.dp)
-                .background(if (selected) MediaAccent else Color(0xFF2A2A4A)),
-        )
-    }
-}
-
-@Composable
-private fun FilterPill(text: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        color = if (selected) MediaAccent else Color.Transparent,
-        contentColor = if (selected) Color.White else MediaMuted,
-        shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(2.dp, if (selected) MediaAccent else MediaButtonAlt),
-        modifier = Modifier.clickable(onClick = onClick),
-    ) {
-        Text(
-            text,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
+                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
         )
     }
 }
@@ -837,31 +828,44 @@ private fun AudioItemRow(
     onDownload: () -> Unit,
 ) {
     Surface(
-        color = if (active) Color(0xFF1A2744) else Color(0xFF0E1628),
+        color = if (active) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) MediaAccent else Color(0xFF2A2A4A)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(media.displayTitle, color = MediaText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(media.displayTitle, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (media.description.isNotBlank()) {
-                    Text(media.description, color = Color(0xFF888888), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(media.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (media.isPublic) "🌐 Public" else "🔒 Personal", color = Color(0xFF888888), style = MaterialTheme.typography.labelSmall)
-                    Text(formatSize(media.fileSize), color = Color(0xFF888888), style = MaterialTheme.typography.labelSmall)
+                    Text(if (media.isPublic) "Public" else "Personal", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text(formatSize(media.fileSize), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
             }
+            // Three trailing elements, none of them a real control: a `♫` glyph, and two
+            // clickable `Surface`es containing `⬇` and `✏️`. The emoji took no tint, carried no
+            // content description, and at 10×6dp of padding both buttons were well under the
+            // touch minimum. These are the same two icon buttons the rest of the app uses.
             if (active && isPlaying) {
-                Text("♫", color = MediaAccent, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 6.dp))
+                Icon(
+                    Icons.Filled.GraphicEq,
+                    contentDescription = "Playing",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(Sizes.iconSm),
+                )
             }
-            Surface(color = MediaButtonAlt, shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(end = 6.dp).clickable(onClick = onDownload)) {
-                Text("⬇", color = MediaText, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-            }
-            Surface(color = MediaButtonAlt, shape = RoundedCornerShape(8.dp), modifier = Modifier.clickable(onClick = onEdit)) {
-                Text("✏️", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-            }
+            LexIconButton(
+                icon = Icons.Filled.Download,
+                contentDescription = "Download",
+                onClick = onDownload,
+            )
+            LexIconButton(
+                icon = Icons.Filled.Edit,
+                contentDescription = "Edit",
+                onClick = onEdit,
+            )
         }
     }
 }
@@ -869,9 +873,9 @@ private fun AudioItemRow(
 @Composable
 private fun PlaylistMiniCard(playlist: Playlist, onClick: () -> Unit) {
     Surface(
-        color = Color(0xFF0E1628),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2A2A4A)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Row(
@@ -879,16 +883,21 @@ private fun PlaylistMiniCard(playlist: Playlist, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("🎵", style = MaterialTheme.typography.headlineSmall)
+            Icon(
+                Icons.AutoMirrored.Filled.QueueMusic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(Sizes.iconLg),
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(playlist.name, color = MediaText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(playlist.name, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (playlist.description.isNotBlank()) {
-                    Text(playlist.description, color = Color(0xFF888888), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(playlist.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Surface(color = MediaAccent, shape = RoundedCornerShape(10.dp)) {
+                Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(10.dp)) {
                     Text(
                         playlist.mediaType,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
                     )
@@ -909,8 +918,8 @@ private fun EditMediaDialog(
     var isPublic by remember(media.id) { mutableStateOf(media.isPublic) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = MediaPanel,
-        title = { Text("✏️ Edit Media", color = MediaText) },
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = { Text("Edit media", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
@@ -919,18 +928,18 @@ private fun EditMediaDialog(
                     Switch(
                         checked = isPublic,
                         onCheckedChange = { isPublic = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = MediaAccent),
+                        colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
                     )
-                    Text(if (isPublic) "Public" else "Personal", color = MediaText)
+                    Text(if (isPublic) "Public" else "Personal", color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(title, description, isPublic) }, colors = ButtonDefaults.buttonColors(containerColor = MediaAccent)) {
+            Button(onClick = { onSave(title, description, isPublic) }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                 Text("Save")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MediaMuted) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
     )
 }
 
@@ -956,14 +965,14 @@ private fun NowPlayingSection(
     onToggleShuffle: () -> Unit,
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MediaPanel),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
     ) {
         if (playerState.mediaId == null) {
             Text(
                 "Select a track from the library to start listening",
-                color = MediaMuted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 16.dp),
             )
@@ -972,25 +981,25 @@ private fun NowPlayingSection(
 
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("NOW PLAYING", color = Color(0xFF888888), style = MaterialTheme.typography.labelMedium, letterSpacing = 1.5.sp)
-                Text(playerState.title.ifBlank { "Untitled" }, color = Color.White, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("NOW PLAYING", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, letterSpacing = 1.5.sp)
+                Text(playerState.title.ifBlank { "Untitled" }, color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (playerState.subtitle.isNotBlank()) {
-                    Text(playerState.subtitle, color = MediaMuted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(playerState.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (inPlaylist && playlistName.isNotBlank()) {
-                    Text("\uD83D\uDCCB $playlistName", color = MediaAccent, style = MaterialTheme.typography.labelMedium)
+                    Text(playlistName, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(formatMs(playerState.positionMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                Text(formatMs(playerState.positionMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                 Slider(
                     value = playerState.progress,
                     onValueChange = onSeek,
                     modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(thumbColor = MediaAccent, activeTrackColor = MediaAccent, inactiveTrackColor = MediaButtonAlt),
+                    colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Text(formatMs(playerState.durationMs), color = MediaMuted, style = MaterialTheme.typography.labelMedium)
+                Text(formatMs(playerState.durationMs), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
             }
 
             // This is the row that prompted the redesign. Both pills were unweighted and
@@ -1025,14 +1034,19 @@ private fun NowPlayingSection(
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("\uD83D\uDD0A", style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        Icons.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Sizes.icon),
+                    )
                     Slider(
                         value = playerState.volume,
                         onValueChange = onVolume,
                         modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(thumbColor = MediaAccent, activeTrackColor = MediaAccent, inactiveTrackColor = MediaButtonAlt),
+                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                     )
-                    Text("${(playerState.volume * 100).toInt()}%", color = MediaAccent, style = MaterialTheme.typography.labelMedium)
+                    Text("${(playerState.volume * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                 }
                 ActionRow {
                     LabeledSwitch("Auto-play", playerState.autoAdvance, onCheckedChange = { onToggleAutoAdvance() })

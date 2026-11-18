@@ -9,10 +9,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -23,19 +28,35 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.MediaFile
 import com.alexdyakin.lexicon.data.MediaKind
+import com.alexdyakin.lexicon.ui.components.ActionRow
 import com.alexdyakin.lexicon.ui.components.EmptyBox
-import com.alexdyakin.lexicon.ui.components.LoadingBox
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.LexChip
 import com.alexdyakin.lexicon.ui.components.LexIconButton
 import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.components.ListRow
+import com.alexdyakin.lexicon.ui.components.LoadingBox
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import com.alexdyakin.lexicon.ui.theme.Elevation
+import com.alexdyakin.lexicon.ui.theme.Radii
+import com.alexdyakin.lexicon.ui.theme.Sizes
+import com.alexdyakin.lexicon.ui.theme.Spacing
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/** One icon per media kind, replacing the `♪ 📖 ▶ ◧ ◈` glyph column. */
+private fun MediaKind.icon(): ImageVector = when (this) {
+    MediaKind.AUDIO -> Icons.Filled.MusicNote
+    MediaKind.AUDIOBOOK -> Icons.AutoMirrored.Filled.MenuBook
+    MediaKind.VIDEO -> Icons.Filled.Movie
+    MediaKind.IMAGE -> Icons.Filled.Image
+    MediaKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaLibraryScreen(
     onBack: () -> Unit,
@@ -55,27 +76,42 @@ fun MediaLibraryScreen(
         if (pinnedFilter != null) viewModel.setFilter(pinnedFilter)
     }
 
-    if (editing != null) {
+    editing?.let { media ->
         EditMediaDialog(
-            media = editing!!,
+            media = media,
             saving = state.saving,
             onDismiss = { editing = null },
-            onSave = { title, description -> viewModel.updateMedia(editing!!.id, title, description); editing = null },
+            onSave = { newTitle, description ->
+                viewModel.updateMedia(media.id, newTitle, description)
+                editing = null
+            },
         )
     }
-    if (deleting != null) {
+    deleting?.let { media ->
         ConfirmMediaDeleteDialog(
-            media = deleting!!,
+            media = media,
             saving = state.saving,
             onDismiss = { deleting = null },
-            onConfirm = { viewModel.deleteMedia(deleting!!.id); deleting = null },
+            onConfirm = {
+                viewModel.deleteMedia(media.id)
+                deleting = null
+            },
         )
     }
 
     ScreenScaffold(
         title = title,
         onBack = onBack,
-        actions = { if (showUploadAction) TextButton(onClick = onOpenUpload) { Text("Add") } },
+        gutter = Spacing.gutter,
+        actions = {
+            if (showUploadAction) {
+                LexIconButton(
+                    icon = Icons.Filled.Add,
+                    contentDescription = "Add media",
+                    onClick = onOpenUpload,
+                )
+            }
+        },
         bottomBar = {
             // Mini-player docks above the content whenever something is loaded
             AnimatedVisibility(
@@ -91,33 +127,41 @@ fun MediaLibraryScreen(
             }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-
+        Column(
+            Modifier.fillMaxSize().padding(padding),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
             OutlinedTextField(
                 value = state.query,
                 onValueChange = viewModel::setQuery,
                 placeholder = { Text("Search the library") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(top = Spacing.sm),
             )
 
-            FlowRow(
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (pinnedFilter == null) {
+            // A FlowRow, so four filters fit at 320dp and at a large font scale by wrapping
+            // instead of running off the right edge.
+            if (pinnedFilter == null) {
+                ActionRow {
                     MediaFilter.entries.forEach { filter ->
-                        FilterChip(
+                        LexChip(
+                            label = filter.label,
                             selected = state.filter == filter,
                             onClick = { viewModel.setFilter(filter) },
-                            label = { Text(filter.label) },
                         )
                     }
-                } else {
-                    AssistChip(onClick = { }, label = { Text(pinnedFilter.label) })
+                }
+            } else {
+                ActionRow {
+                    AssistChip(
+                        onClick = { },
+                        shape = Radii.pill,
+                        label = { Text(pinnedFilter.label, maxLines = 1) },
+                    )
                 }
             }
 
@@ -125,12 +169,15 @@ fun MediaLibraryScreen(
                 state.loading -> LoadingBox()
                 state.error != null -> EmptyBox(message = state.error!!)
                 state.visible.isEmpty() -> EmptyBox(
-                    message = if (state.query.isBlank()) "Nothing in this section yet."
-                              else "No matches for \"${state.query}\"."
+                    message = if (state.query.isBlank()) {
+                        "Nothing in this section yet."
+                    } else {
+                        "No matches for \"${state.query}\"."
+                    }
                 )
                 else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = Spacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     itemsIndexed(state.visible, key = { _, m -> m.id }) { index, media ->
                         var visible by remember(media.id) { mutableStateOf(false) }
@@ -148,7 +195,10 @@ fun MediaLibraryScreen(
                             MediaRow(
                                 media = media,
                                 nowPlaying = playerState.mediaId == media.id.toString(),
-                                onPlay = { viewModel.play(media); if (media.kind == MediaKind.VIDEO) onOpenPlayer() },
+                                onPlay = {
+                                    viewModel.play(media)
+                                    if (media.kind == MediaKind.VIDEO) onOpenPlayer()
+                                },
                                 onEdit = { editing = media },
                                 onDelete = { deleting = media },
                             )
@@ -190,6 +240,15 @@ fun AudiobooksLibraryScreen(onBack: () -> Unit, onOpenPlayer: () -> Unit) = Medi
     showUploadAction = false,
 )
 
+/**
+ * A library row.
+ *
+ * The trailing controls used to be three: a decorative `PlayArrow` that looked like a button but
+ * was not one, then Edit, then Delete. With a 40dp glyph column that is 160dp of fixed children
+ * plus padding against a 288dp content width, which left the title about 100dp — and the fake play
+ * icon was the least useful of the three, since tapping the card is what starts playback. It is
+ * gone, and the two real actions sit in [ListRow]'s fixed slot so a row cannot shift sideways.
+ */
 @Composable
 private fun MediaRow(
     media: MediaFile,
@@ -200,27 +259,39 @@ private fun MediaRow(
 ) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (nowPlaying)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
-            else MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+            containerColor = if (nowPlaying) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
         ),
-        shape = RoundedCornerShape(16.dp),
+        shape = Radii.card,
+        elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = media.isPlayable, onClick = onPlay),
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = when (media.kind) {
-                    MediaKind.AUDIO -> "♪"
-                    MediaKind.AUDIOBOOK -> "📖"
-                    MediaKind.VIDEO -> "▶"
-                    MediaKind.IMAGE -> "◧"
-                    MediaKind.OTHER -> "◈"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.width(40.dp),
+        ListRow(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            action = {
+                LexIconButton(
+                    icon = Icons.Filled.Edit,
+                    contentDescription = "Edit",
+                    onClick = onEdit,
+                )
+                LexIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    onClick = onDelete,
+                    tone = LexTone.Destructive,
+                )
+            },
+        ) {
+            Icon(
+                media.kind.icon(),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(Sizes.icon),
             )
             Column(Modifier.weight(1f)) {
                 Text(
@@ -233,22 +304,17 @@ private fun MediaRow(
                 Text(
                     buildString {
                         append(media.mediaType.lowercase().ifBlank { "file" })
-                        if (media.fileSize > 0) append(" · %.1f MB".format(media.fileSize / 1_048_576.0))
+                        if (media.fileSize > 0) {
+                            append(" · %.1f MB".format(media.fileSize / 1_048_576.0))
+                        }
                         if (nowPlaying) append(" · playing")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (media.isPlayable) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-            IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -264,17 +330,39 @@ private fun EditMediaDialog(
     var description by remember(media.id) { mutableStateOf(media.description) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = Radii.card,
         title = { Text("Edit media") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true)
-                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") })
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(title, description) }, enabled = !saving && title.isNotBlank()) { Text("Save") }
+            LexButton(
+                text = "Save",
+                onClick = { onSave(title, description) },
+                tone = LexTone.Primary,
+                enabled = !saving && title.isNotBlank(),
+                loading = saving,
+            )
         },
-        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
+        dismissButton = {
+            LexButton("Cancel", onDismiss, tone = LexTone.Quiet, enabled = !saving)
+        },
     )
 }
 
@@ -286,10 +374,16 @@ private fun ConfirmMediaDeleteDialog(
     onConfirm: () -> Unit,
 ) = AlertDialog(
     onDismissRequest = onDismiss,
+    shape = Radii.card,
     title = { Text("Delete media?") },
     text = { Text("Delete \"${media.displayTitle}\" from the library?") },
-    confirmButton = { Button(onClick = onConfirm, enabled = !saving) { Text("Delete") } },
-    dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
+    // Destructive, so outlined in the error colour rather than the heaviest control in the dialog.
+    confirmButton = {
+        LexButton("Delete", onConfirm, tone = LexTone.Destructive, enabled = !saving)
+    },
+    dismissButton = {
+        LexButton("Cancel", onDismiss, tone = LexTone.Quiet, enabled = !saving)
+    },
 )
 
 @Composable
@@ -300,19 +394,23 @@ fun MiniPlayer(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-        tonalElevation = 8.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = Elevation.raised,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Column {
             LinearProgressIndicator(
                 progress = { state.progress },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier.fillMaxWidth().height(Spacing.xxs),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = Color.Transparent,
             )
             Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm)
+                    .heightIn(min = Sizes.touch),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {

@@ -4,25 +4,33 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,12 +40,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.ApiResult
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.LiveStreamQueueItem
@@ -56,7 +64,20 @@ import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.di.SseOkHttp
 import com.alexdyakin.lexicon.data.safeApiCall
 import com.alexdyakin.lexicon.media.PlayerConnection
+import com.alexdyakin.lexicon.ui.components.ActionRow
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.LexIconButton
+import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.components.ListRow
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import com.alexdyakin.lexicon.ui.components.SectionHeader
+import com.alexdyakin.lexicon.ui.components.SplitActions
+import com.alexdyakin.lexicon.ui.theme.Elevation
+import com.alexdyakin.lexicon.ui.theme.Radii
+import com.alexdyakin.lexicon.ui.theme.Sizes
+import com.alexdyakin.lexicon.ui.theme.Spacing
+import com.alexdyakin.lexicon.ui.theme.Status
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -97,9 +118,9 @@ import kotlin.math.pow
 enum class StreamConnection { CONNECTING, CONNECTED, DISCONNECTED }
 
 enum class QueueSort(val label: String) {
-    TITLE("🔤 A-Z"),
-    NEWEST("🆕 Newest"),
-    OLDEST("📅 Oldest"),
+    TITLE("A–Z"),
+    NEWEST("Newest"),
+    OLDEST("Oldest"),
 }
 
 data class LiveStreamUiState(
@@ -379,7 +400,6 @@ fun LiveStreamScreen(
     LaunchedEffect(channel) { viewModel.start(channel) }
 
     val isMusic = !channel.equals("video", true)
-    val title = if (isMusic) "🎵 Music Live Stream" else "🎬 Video Live Stream"
 
     if (showAddMedia) {
         AddToQueueDialog(
@@ -401,24 +421,47 @@ fun LiveStreamScreen(
     }
 
     ScreenScaffold(
-        title = title,
+        title = if (isMusic) "Music live stream" else "Video live stream",
         onBack = onBack,
-        actions = { ConnectionPill(state.connection) },
+        gutter = Spacing.gutter,
+        actions = { ConnectionIndicator(state.connection) },
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             state.error?.let { message ->
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                        shape = Radii.card,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                            TextButton(onClick = viewModel::dismissError) { Text("✕") }
+                        ListRow(
+                            modifier = Modifier.padding(
+                                start = Spacing.md,
+                                end = Spacing.sm,
+                                top = Spacing.sm,
+                                bottom = Spacing.sm,
+                            ),
+                            actionSlotWidth = Sizes.touch,
+                            action = {
+                                LexIconButton(
+                                    icon = Icons.Filled.Close,
+                                    contentDescription = "Dismiss error",
+                                    onClick = viewModel::dismissError,
+                                )
+                            },
+                        ) {
+                            Text(
+                                message,
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
                         }
                     }
                 }
@@ -426,48 +469,79 @@ fun LiveStreamScreen(
 
             if (state.connection == StreamConnection.DISCONNECTED && state.error == null) {
                 item {
-                    Text(
-                        "⚠️ Connection lost. Attempting to reconnect...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(Sizes.iconSm),
+                        )
+                        Text(
+                            "Connection lost. Attempting to reconnect...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
 
             // ── Now playing ──────────────────────────────────────────────────
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = Radii.card,
+                    elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(
+                        Modifier.padding(Spacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LiveBadge()
                             Text(
-                                "● LIVE",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error,
+                                "Now playing",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.width(10.dp))
-                            Text("Now Playing", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         }
 
                         val media = state.state.currentMedia
                         if (media != null) {
-                            Text(media.displayTitle, style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                media.displayTitle,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             Text(
                                 media.description.ifBlank { "No description" },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         } else {
                             Text(
-                                if (isMusic) "No music currently playing" else "No video currently playing",
+                                if (isMusic) {
+                                    "No music currently playing"
+                                } else {
+                                    "No video currently playing"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                "Add something to the queue to start!",
+                                "Add something to the queue to start.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -477,50 +551,72 @@ fun LiveStreamScreen(
             }
 
             // ── The four stream controls ─────────────────────────────────────
+            // Two equal-weight pairs rather than four content-sized buttons: every label is a
+            // different length, and unweighted children are measured in declaration order, so
+            // the last of four is always the one that gets starved.
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = viewModel::skip,
-                            enabled = !state.saving,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("⏭ Skip") }
-                        OutlinedButton(
-                            onClick = { showPlaylists = true; viewModel.loadPublicPlaylists() },
-                            modifier = Modifier.weight(1f),
-                        ) { Text("📋 Add Playlist") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { showAddMedia = true; viewModel.loadEligibleMedia() },
-                            modifier = Modifier.weight(1f),
-                        ) { Text("➕ Add to Queue") }
-                        OutlinedButton(
-                            onClick = { onOpenQueueManager(channel) },
-                            modifier = Modifier.weight(1f),
-                        ) { Text(if (isMusic) "🎵 Manage Queue" else "🎬 Manage Queue") }
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    SplitActions(
+                        secondary = {
+                            LexButton(
+                                text = "Add playlist",
+                                onClick = {
+                                    showPlaylists = true
+                                    viewModel.loadPublicPlaylists()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                        primary = {
+                            LexButton(
+                                text = "Skip",
+                                onClick = viewModel::skip,
+                                tone = LexTone.Primary,
+                                icon = Icons.Filled.SkipNext,
+                                enabled = !state.saving,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                    )
+                    SplitActions(
+                        secondary = {
+                            LexButton(
+                                text = "Add to queue",
+                                onClick = {
+                                    showAddMedia = true
+                                    viewModel.loadEligibleMedia()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                        primary = {
+                            LexButton(
+                                text = "Manage queue",
+                                onClick = { onOpenQueueManager(channel) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                    )
                 }
             }
 
-            // ── Up next ──────────────────────────────────────────────────────
-            item {
-                Text(
-                    "Up Next (${state.upNext.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
+            // ── Up next ─────────────────────────────────────────────────────
+            item { SectionHeader("Up next (${state.upNext.size})") }
 
             if (state.upNext.isEmpty()) {
                 item {
-                    Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Queue is empty", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         Text(
-                            if (isMusic) "Random music will play when queue is empty"
-                            else "Random video will play when queue is empty",
+                            "Queue is empty",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Text(
+                            if (isMusic) {
+                                "Random music will play when the queue is empty"
+                            } else {
+                                "Random video will play when the queue is empty"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -529,50 +625,133 @@ fun LiveStreamScreen(
             }
 
             itemsIndexed(state.upNext, key = { _, item -> item.id }) { index, item ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${index + 1}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.mediaFile?.displayTitle ?: "Media #${item.mediaFileId}")
-                            Text(
-                                "Added by User #${item.addedBy}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        // The web only lets you remove what you queued yourself.
-                        if (item.addedBy == viewModel.userId) {
-                            TextButton(onClick = { viewModel.remove(item) }, enabled = !state.saving) { Text("✕") }
-                        }
-                    }
-                }
+                QueueItemRow(
+                    position = index + 1,
+                    title = item.mediaFile?.displayTitle ?: "Media #${item.mediaFileId}",
+                    subtitle = "Added by user #${item.addedBy}",
+                    mediaType = item.mediaFile?.mediaType,
+                    // The web only lets you remove what you queued yourself.
+                    removable = item.addedBy == viewModel.userId,
+                    saving = state.saving,
+                    onRemove = { viewModel.remove(item) },
+                )
             }
         }
     }
 }
 
+/**
+ * The live dot.
+ *
+ * Was the string `"● LIVE"` in bold error red. The bullet is a glyph with no tint of its own and a
+ * width that varies by device font, so it drifted away from its label; this is a real badge.
+ */
 @Composable
-private fun ConnectionPill(connection: StreamConnection) {
-    val (dot, label) = when (connection) {
-        StreamConnection.CONNECTED -> "🟢" to "Connected"
-        StreamConnection.CONNECTING -> "🟡" to "Connecting..."
-        StreamConnection.DISCONNECTED -> "🔴" to "Disconnected"
+private fun LiveBadge() {
+    Surface(color = MaterialTheme.colorScheme.error, shape = Radii.pill) {
+        Text(
+            "LIVE",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onError,
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+        )
     }
-    Text(
-        "$dot $label",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(end = 12.dp),
+}
+
+/**
+ * Connection state as one icon, replacing the `🟢 / 🟡 / 🔴` emoji pill.
+ *
+ * Emoji are the one thing in a theme that cannot be recoloured, so the old pill stayed bright
+ * green-yellow-red whatever the palette did, and its three variants were three different widths
+ * in a slot the screen title has to share.
+ */
+@Composable
+private fun ConnectionIndicator(connection: StreamConnection) {
+    val (icon, tint, label) = when (connection) {
+        StreamConnection.CONNECTED ->
+            Triple(Icons.Filled.CloudDone, Status.ok, "Connected")
+        StreamConnection.CONNECTING ->
+            Triple(Icons.Filled.CloudQueue, Status.warn, "Connecting")
+        StreamConnection.DISCONNECTED ->
+            Triple(Icons.Filled.CloudOff, Status.danger, "Disconnected")
+    }
+    Icon(
+        icon,
+        contentDescription = label,
+        tint = tint,
+        modifier = Modifier.padding(end = Spacing.md).size(Sizes.icon),
     )
+}
+
+/**
+ * One queued track, shared by the stream screen and the Queue Manager.
+ *
+ * Both screens had their own copy, and both put the remove control in as the character `✕` inside
+ * a `TextButton` — no tint, no content description, and a width that moved with the device font.
+ * The two also disagreed on padding (14dp against 12dp) and on the type role for the position
+ * number, which was visible when you navigated between them.
+ */
+@Composable
+internal fun QueueItemRow(
+    position: Int,
+    title: String,
+    mediaType: String?,
+    removable: Boolean,
+    saving: Boolean,
+    onRemove: () -> Unit,
+    subtitle: String? = null,
+) {
+    Card(
+        shape = Radii.card,
+        elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        ListRow(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            actionSlotWidth = Sizes.touch,
+            action = {
+                if (removable) {
+                    LexIconButton(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Remove from queue",
+                        onClick = onRemove,
+                        enabled = !saving,
+                        tone = LexTone.Destructive,
+                    )
+                }
+            },
+        ) {
+            Text(
+                "$position",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Icon(
+                kindIcon(mediaType),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Sizes.iconSm),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Search + sort + "N of M tracks", as in the web `.add-queue-modal`. */
@@ -592,22 +771,24 @@ private fun AddToQueueDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isMusic) "🎵 Add Music to Queue" else "🎬 Add Video to Queue") },
+        shape = Radii.card,
+        title = { Text(if (isMusic) "Add music to queue" else "Add video to queue") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search by title or description...") },
+                    label = { Text("Search by title or description", maxLines = 1) },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionRow {
                     QueueSort.entries.forEach { option ->
-                        FilterChip(
+                        LexChip(
+                            label = option.label,
                             selected = sort == option,
                             onClick = { sort = option },
-                            label = { Text(option.label, style = MaterialTheme.typography.labelSmall) },
                         )
                     }
                 }
@@ -618,31 +799,54 @@ private fun AddToQueueDialog(
                 )
                 if (filtered.isEmpty()) {
                     Text(
-                        if (query.isBlank()) "No media found" else "No media found matching \"$query\"",
+                        if (query.isBlank()) {
+                            "No media found"
+                        } else {
+                            "No media found matching \"$query\""
+                        },
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Bounded, so the list cannot push the dialog's own buttons off a short
+                    // screen or out of reach at a large font scale.
+                    LazyColumn(Modifier.heightIn(max = 320.dp)) {
                         items(filtered, key = { it.id }) { file ->
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            ListRow(
+                                action = {
+                                    LexButton(
+                                        text = "Add",
+                                        onClick = { onAdd(file) },
+                                        icon = Icons.Filled.Add,
+                                        enabled = !saving,
+                                    )
+                                },
+                            ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(file.displayTitle, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        file.displayTitle,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                     if (file.description.isNotBlank()) {
                                         Text(
                                             file.description,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
-                                TextButton(onClick = { onAdd(file) }, enabled = !saving) { Text("+ Add") }
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = { OutlinedButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { LexButton("Close", onDismiss, tone = LexTone.Primary) },
     )
 }
 
@@ -656,9 +860,10 @@ internal fun AddPlaylistDialog(
     onDismiss: () -> Unit,
 ) = AlertDialog(
     onDismissRequest = onDismiss,
-    title = { Text("📋 Add Playlist to Queue") },
+    shape = Radii.card,
+    title = { Text("Add playlist to queue") },
     text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             val kind = if (isMusic) "music" else "video"
             Text(
                 "${playlists.size} public $kind playlist${if (playlists.size == 1) "" else "s"}",
@@ -666,27 +871,45 @@ internal fun AddPlaylistDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (playlists.isEmpty()) {
-                Text("No public $kind playlists found", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "No public $kind playlists found",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
                     items(playlists, key = { it.id }) { playlist ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        ListRow(
+                            action = {
+                                LexButton(
+                                    text = "Queue all",
+                                    onClick = { onAdd(playlist) },
+                                    icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                    enabled = !saving,
+                                )
+                            },
+                        ) {
                             Column(Modifier.weight(1f)) {
-                                Text(playlist.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    playlist.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                                 Text(
                                     "${playlist.itemCount} tracks",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            TextButton(onClick = { onAdd(playlist) }, enabled = !saving) { Text("+ Queue All") }
                         }
                     }
                 }
             }
         }
     },
-    confirmButton = { OutlinedButton(onClick = onDismiss) { Text("Close") } },
+    confirmButton = { LexButton("Close", onDismiss, tone = LexTone.Primary) },
 )
 
 /** Shared by the stream modal and the Queue Manager — same rules as the web's `filteredMedia`. */
@@ -703,3 +926,7 @@ internal fun filterAndSort(media: List<MediaFile>, query: String, sort: QueueSor
         QueueSort.OLDEST -> matched.sortedBy { it.id }
     }
 }
+
+/** Replaces the `🎬` / `🎵` glyphs the queue rows used in five places. */
+internal fun kindIcon(mediaType: String?): ImageVector =
+    if (mediaType.equals("VIDEO", true)) Icons.Filled.Movie else Icons.Filled.MusicNote

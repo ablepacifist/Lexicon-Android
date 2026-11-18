@@ -72,7 +72,6 @@ import com.alexdyakin.lexicon.lexi.LexiSettings
 import com.alexdyakin.lexicon.lexi.LexiSettingsStore
 import com.alexdyakin.lexicon.lexi.LexiState
 import com.alexdyakin.lexicon.lexi.LexiTurn
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import com.alexdyakin.lexicon.ui.components.SectionHeader
 import java.text.DateFormat
@@ -110,7 +109,7 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
         }
     }
 
-    ScreenScaffold("Lexi", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Lexi", onBack) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(
                 start = 16.dp,
@@ -164,7 +163,7 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
                     "Audio never leaves this phone. The wake word and speech recognition run on the " +
                         "device; only the words of your question are sent to the brain.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = OnScrimDim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -280,7 +279,7 @@ private fun Orb(state: LexiState) {
         LexiState.Capturing -> Color(0xFF7FB069)
         is LexiState.Thinking, is LexiState.Speaking -> Color(0xFF8AB4F8)
         is LexiState.Failed -> MaterialTheme.colorScheme.error
-        LexiState.Off, LexiState.PausedForCall -> OnScrimDim.copy(alpha = 0.4f)
+        LexiState.Off, LexiState.PausedForCall -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         else -> primary
     }
     val color by animateColorAsState(target, label = "orbColor")

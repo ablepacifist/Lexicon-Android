@@ -304,7 +304,7 @@ fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewMode
             viewModel.uploadAvatar(bytes, filename, context.contentResolver.getType(uri))
         }
     }
-    ScreenScaffold("Profile", onBack, R.drawable.bg_lexicon_room) { padding ->
+    ScreenScaffold("Profile", onBack) { padding ->
         if (state.loading) { Column(Modifier.fillMaxSize().padding(padding), Arrangement.Center, Alignment.CenterHorizontally) { CircularProgressIndicator() }; return@ScreenScaffold }
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {

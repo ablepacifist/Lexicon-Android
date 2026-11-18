@@ -377,7 +377,7 @@ fun DedicatedMediaPlayerScreen(
         viewModel.initialize(mode, initialMediaId, initialPlaylistId)
     }
 
-    ScreenScaffold(title = mode.title, onBack = onBack, background = R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold(title = mode.title, onBack = onBack) { padding ->
         if (state.loading) {
             LoadingBox(padding)
             return@ScreenScaffold

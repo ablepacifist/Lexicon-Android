@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +59,7 @@ fun PlayerScreen(
     var scrubValue by remember { mutableFloatStateOf(0f) }
     val shown = if (scrubbing) scrubValue else state.progress
 
-    ScreenScaffold(title = "Now playing", onBack = onBack, background = R.drawable.bg_lexicon_room) { padding ->
+    ScreenScaffold(title = "Now playing", onBack = onBack) { padding ->
         if (state.mediaId == null) {
             EmptyBox(padding, "Nothing is playing.\n\nPick something from the library.")
             return@ScreenScaffold

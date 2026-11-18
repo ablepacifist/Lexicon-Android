@@ -27,8 +27,6 @@ import com.alexdyakin.lexicon.data.KnowledgeEntry
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.api.AlchemyApi
 import com.alexdyakin.lexicon.ui.components.LoadingBox
-import com.alexdyakin.lexicon.ui.components.OnScrim
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,13 +42,13 @@ data class KnowledgeUiState(val loading: Boolean = true, val entries: List<Knowl
 }
 @Composable fun KnowledgeBookScreen(onBack: () -> Unit, viewModel: KnowledgeBookViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    ScreenScaffold("Knowledge book", onBack, R.drawable.bg_dashboard) { padding -> when {
+    ScreenScaffold("Knowledge book", onBack) { padding -> when {
         state.loading -> LoadingBox(padding)
         state.error != null -> Column(Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.Center) {
-            Text(state.error!!, color = OnScrim, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(state.error!!, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
         }
         state.entries.isEmpty() -> Column(Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.Center) {
-            Text("Discover effects by eating ingredients and brewing potions.", color = OnScrimDim, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("Discover effects by eating ingredients and brewing potions.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
         }
         else -> LazyColumn(
             Modifier.fillMaxSize().padding(padding),

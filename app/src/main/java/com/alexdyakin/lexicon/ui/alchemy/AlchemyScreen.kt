@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.Ingredient
 import com.alexdyakin.lexicon.data.Potion
+import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,42 +55,16 @@ fun AlchemyScreen(
         }
     }
 
+    // This screen used to hand-copy ScreenScaffold's body so it could add a SnackbarHost, and
+    // drifted in the process — its scrim was 0.85 where the shared one was 0.88. The scaffold
+    // takes a snackbarHost now, so the fork is gone. (The outer Box stays for the forage
+    // overlay this screen draws above the scaffold; it is the root container, not a second one.)
     Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.bg_dashboard),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.85f))
-                    )
-                )
-        )
-
-        Scaffold(
-            containerColor = Color.Transparent,
+        ScreenScaffold(
+            title = "Alchemy",
+            onBack = onBack,
+            actions = { TextButton(onClick = onOpenKnowledge) { Text("Book") } },
             snackbarHost = { SnackbarHost(snackbarHost) },
-            topBar = {
-                TopAppBar(
-                    title = { Text("Alchemy") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = { TextButton(onClick = onOpenKnowledge) { Text("Book") } },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.primary,
-                        navigationIconContentColor = MaterialTheme.colorScheme.primary,
-                    ),
-                )
-            },
         ) { padding ->
             Column(
                 Modifier

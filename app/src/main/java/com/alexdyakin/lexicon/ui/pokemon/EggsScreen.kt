@@ -58,7 +58,7 @@ class EggsViewModel @Inject constructor(private val api: PokemonApi) : ViewModel
 @Composable
 fun EggsScreen(onBack: () -> Unit, viewModel: EggsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    ScreenScaffold("Eggs", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Eggs", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.eggs.isEmpty() -> EmptyBox(padding, state.message ?: "No eggs yet. Explore the map and spin PokéStops.")

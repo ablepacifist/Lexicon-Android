@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +71,6 @@ fun MediaLibraryScreen(
     ScreenScaffold(
         title = title,
         onBack = onBack,
-        background = R.drawable.bg_dashboard,
         actions = { if (showUploadAction) TextButton(onClick = onOpenUpload) { Text("Add") } },
         bottomBar = {
             // Mini-player docks above the content whenever something is loaded

@@ -52,8 +52,6 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.di.SseOkHttp
 import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.ui.components.OnScrim
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -283,12 +281,11 @@ fun QueueManagerScreen(
     ScreenScaffold(
         title = if (isMusic) "🎵 Queue Manager" else "🎬 Queue Manager",
         onBack = onBack,
-        background = R.drawable.bg_dashboard,
         actions = {
             Text(
                 if (state.connected) "● Connected" else "○ Connecting...",
                 style = MaterialTheme.typography.labelSmall,
-                color = OnScrimDim,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 12.dp),
             )
         },
@@ -339,7 +336,7 @@ fun QueueManagerScreen(
                         "Live Stream Queue",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -384,18 +381,18 @@ fun QueueManagerScreen(
                     "Up Next (${state.upNext.size})",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = OnScrim,
+                    color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
             when {
-                state.loading -> item { Text("Loading queue...", style = MaterialTheme.typography.bodySmall, color = OnScrimDim) }
+                state.loading -> item { Text("Loading queue...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 state.upNext.isEmpty() -> item {
                     Text(
                         "Queue is empty — random media will auto-play",
                         style = MaterialTheme.typography.bodySmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 else -> itemsIndexed(state.upNext, key = { _, item -> "q-${item.id}" }) { index, item ->
@@ -429,13 +426,13 @@ fun QueueManagerScreen(
                         "Browse Media",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         "${state.eligible.size} available",
                         style = MaterialTheme.typography.labelSmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -461,7 +458,7 @@ fun QueueManagerScreen(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sort:", style = MaterialTheme.typography.labelSmall, color = OnScrimDim)
+                    Text("Sort:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     QueueSort.entries.forEach { option ->
                         FilterChip(
                             selected = sort == option,
@@ -475,7 +472,7 @@ fun QueueManagerScreen(
                 Text(
                     "${filtered.size} of ${state.eligible.size} items",
                     style = MaterialTheme.typography.labelSmall,
-                    color = OnScrimDim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -484,7 +481,7 @@ fun QueueManagerScreen(
                     Text(
                         "No matching media",
                         style = MaterialTheme.typography.bodySmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,8 +36,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import com.alexdyakin.lexicon.ui.components.OnScrim
 import com.alexdyakin.lexicon.R
+import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import com.alexdyakin.lexicon.ui.notifications.NotificationsViewModel
 
 /**
@@ -101,47 +102,18 @@ fun HomeScreen(
         )
     }
 
+    // Also a hand-copy of ScreenScaffold's body, forked only because this screen has no back
+    // button — which the shared scaffold has always supported via `onBack = null`.
     Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.bg_lexicon_room),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.88f))
-                    )
-                )
-        )
-
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            "Lexicon",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    actions = {
-                        BadgedBox(badge = { UnreadBadge(notificationState.unreadCount) }) {
-                            TextButton(onClick = { onOpen("notifications") }) { Text("Alerts") }
-                        }
-                        TextButton(onClick = { onOpen("profile") }) { Text("Profile") }
-                        TextButton(onClick = onLogout) { Text("Sign out") }
-                    },
-                )
+        ScreenScaffold(
+            title = "Lexicon",
+            onBack = null,
+            actions = {
+                BadgedBox(badge = { UnreadBadge(notificationState.unreadCount) }) {
+                    TextButton(onClick = { onOpen("notifications") }) { Text("Alerts") }
+                }
+                TextButton(onClick = { onOpen("profile") }) { Text("Profile") }
+                TextButton(onClick = onLogout) { Text("Sign out") }
             },
         ) { padding ->
             LazyVerticalGrid(
@@ -159,7 +131,7 @@ fun HomeScreen(
                     Text(
                         "Welcome back, $username",
                         style = MaterialTheme.typography.titleMedium,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }

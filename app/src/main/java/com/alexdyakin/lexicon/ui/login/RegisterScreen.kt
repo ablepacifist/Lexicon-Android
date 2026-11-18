@@ -1,6 +1,7 @@
 package com.alexdyakin.lexicon.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -81,11 +82,15 @@ class RegisterViewModel @Inject constructor(private val authApi: AuthApi) : View
 @Composable
 fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    // Until now this was the only screen in the app with no background at all — a flat surface
+    // one tap from Login's full-bleed art, which made the two look like different apps.
+    Box(Modifier.fillMaxSize()) {
+        AuthBackground()
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Create account", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
@@ -100,8 +105,9 @@ fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hil
                     if (state.loading) CircularProgressIndicator() else Text("Create account")
                 }
                 OutlinedButton(onClick = onBackToLogin, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("I already have an account") }
+                }
             }
+            Spacer(Modifier.height(24.dp))
         }
-        Spacer(Modifier.height(24.dp))
     }
 }

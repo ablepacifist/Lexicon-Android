@@ -69,7 +69,7 @@ class PokemonShopViewModel @Inject constructor(private val api: PokemonApi) : Vi
 @Composable
 fun PokemonShopScreen(onBack: () -> Unit, viewModel: PokemonShopViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    ScreenScaffold("PokéMart", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("PokéMart", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.catalog.isEmpty() -> EmptyBox(padding, "The PokéMart is unavailable.")

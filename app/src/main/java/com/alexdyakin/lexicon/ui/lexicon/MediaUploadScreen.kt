@@ -57,7 +57,6 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -376,7 +375,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         )
     }
 
-    ScreenScaffold("Add media", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Add media", onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -767,7 +766,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
 
             item {
                 Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Text("Default media type: Music", color = OnScrimDim, style = MaterialTheme.typography.labelSmall)
+                    Text("Default media type: Music", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

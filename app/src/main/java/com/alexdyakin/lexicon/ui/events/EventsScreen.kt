@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -17,8 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.*
 import com.alexdyakin.lexicon.data.api.EventApi
-import com.alexdyakin.lexicon.ui.components.OnScrim
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -46,7 +45,7 @@ data class EventsState(val loading: Boolean = true, val events: List<LexiconEven
     val state by viewModel.state.collectAsState(); var name by remember { mutableStateOf(viewModel.voterName) }; var createEvent by remember { mutableStateOf(false) }; var createPoll by remember { mutableStateOf(false) }
     if (createEvent) EventDialog({ createEvent = false }, viewModel::create)
     if (createPoll && state.detail != null) PollDialog({ createPoll = false }) { q, options, allowAddOptions -> viewModel.createPoll(state.detail!!.event.id, q, options, allowAddOptions); createPoll = false }
-    ScreenScaffold(if (state.poll != null) "Vote" else if (state.detail != null) state.detail!!.event.title else "Events", { if (state.detail != null) viewModel.close() else onBack() }, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold(if (state.poll != null) "Vote" else if (state.detail != null) state.detail!!.event.title else "Events", { if (state.detail != null) viewModel.close() else onBack() }) { padding ->
         when { state.poll != null -> PollView(padding, state.detail!!.event.id, state.poll!!, name, { name = it }, viewModel::vote, viewModel::addOption)
             state.detail != null -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp)) { item { Card(Modifier.fillMaxWidth()) { Text(state.detail!!.event.description, Modifier.padding(16.dp)) }; Button({ createPoll = true }, Modifier.padding(top = 12.dp)) { Text("Add poll") } }; items(state.detail!!.polls) { poll -> Card(Modifier.fillMaxWidth().padding(top = 10.dp).clickable { viewModel.openPoll(state.detail!!.event.id, poll.id) }) { Text(poll.question, Modifier.padding(16.dp)) } } }
             else -> LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Button({ createEvent = true }) { Text("Create event") } }; items(state.events) { event -> Card(Modifier.fillMaxWidth().clickable { viewModel.open(event.id) }) { Column(Modifier.padding(16.dp)) { Text(event.title, style = MaterialTheme.typography.titleMedium); Text(event.eventDate, style = MaterialTheme.typography.bodyMedium); Text("${event.pollCount} polls", style = MaterialTheme.typography.labelMedium) } } } }
@@ -54,7 +53,7 @@ data class EventsState(val loading: Boolean = true, val events: List<LexiconEven
     }
 }
 @Composable private fun PollView(padding: PaddingValues, eventId: Long, detail: PollDetail, name: String, setName: (String) -> Unit, vote: (Long, Long, List<Long>, String) -> Unit, addOption: (Long, Long, String, String) -> Unit) { var selected by remember(detail) { mutableStateOf(detail.options.filter { it.votedByMe }.map { it.id }.toSet()) }; var optionText by remember(detail) { mutableStateOf("") }; Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text(detail.poll.question, style = MaterialTheme.typography.titleLarge, color = OnScrim)
+        Text(detail.poll.question, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
         OutlinedTextField(name, setName, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
         // Each option is a Card: on the scrim the default text colours are effectively
         // invisible, and a checkbox alone gives nothing to read the label against.
@@ -69,7 +68,7 @@ data class EventsState(val loading: Boolean = true, val events: List<LexiconEven
                 }
             }
         }
-        if (name.isBlank()) Text("Enter your name above to vote.", style = MaterialTheme.typography.labelMedium, color = OnScrimDim, modifier = Modifier.padding(top = 12.dp))
+        if (name.isBlank()) Text("Enter your name above to vote.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
         Button({ vote(eventId, detail.poll.id, selected.toList(), name) }, enabled = name.isNotBlank(), modifier = Modifier.padding(top = 12.dp)) { Text("Save votes") }
         if (detail.poll.allowAddOptions) {
             OutlinedTextField(optionText, { optionText = it }, label = { Text("Suggest an option") }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp))

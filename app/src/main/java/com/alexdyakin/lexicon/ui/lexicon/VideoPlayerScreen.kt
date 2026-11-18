@@ -86,7 +86,7 @@ fun VideoPlayerScreen(
         return
     }
 
-    ScreenScaffold(title = "Video player", onBack = onBack, background = R.drawable.bg_lexicon_room) { padding ->
+    ScreenScaffold(title = "Video player", onBack = onBack) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.Center,

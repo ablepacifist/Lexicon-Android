@@ -91,7 +91,7 @@ class NotificationsViewModel @Inject constructor(
 @Composable
 fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    ScreenScaffold("Notifications", onBack, R.drawable.bg_lexicon_room) { padding ->
+    ScreenScaffold("Notifications", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.items.isEmpty() -> EmptyBox(padding, "No notifications yet")

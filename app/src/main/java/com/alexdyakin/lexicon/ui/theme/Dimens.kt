@@ -48,6 +48,15 @@ object Radii {
 
     /** A true pill at any height, which the absolute-dp spellings were not. */
     val pill = RoundedCornerShape(percent = 50)
+
+    /**
+     * The one card shape. Cards were 16dp on one screen and 20dp on the next — including inside
+     * the same `LazyColumn`, where the mismatch is visible between two stacked cards. A ready-made
+     * shape rather than a radius, because that is what `Card`, `Surface` and `AlertDialog` take,
+     * and re-spelling `RoundedCornerShape(...)` at every call site is how the app ended up with
+     * seventeen radii in the first place.
+     */
+    val card = RoundedCornerShape(lg)
 }
 
 /** Control geometry. Nothing interactive is ever smaller than [touch]. */

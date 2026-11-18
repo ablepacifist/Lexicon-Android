@@ -179,6 +179,41 @@ fun LabeledSwitch(
 }
 
 /**
+ * A full-width setting: a label that takes the room it needs, and a switch pinned to the end.
+ *
+ * Distinct from [LabeledSwitch], which is content-sized so that a pair of them can wrap inside an
+ * [ActionRow]. This is the settings-list form, and it exists because the same
+ * `Row { Text(weight(1f)); Switch(...) }` was retyped at eight call sites — with the label left
+ * uncapped at every one of them, and nothing holding the row to the touch minimum.
+ */
+@Composable
+fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = Sizes.touch),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    }
+}
+
+/**
  * A list row: text that is allowed to grow only so far, and a trailing action slot of **fixed
  * width**.
  *
@@ -193,7 +228,7 @@ fun ListRow(
     modifier: Modifier = Modifier,
     actionSlotWidth: Dp = Sizes.listAction,
     action: (@Composable () -> Unit)? = null,
-    content: @Composable () -> Unit,
+    content: @Composable RowScope.() -> Unit,
 ) {
     Row(
         modifier
@@ -202,7 +237,15 @@ fun ListRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.weight(1f)) { content() }
+        // A RowScope, so the one text column a list row almost always has can claim `weight(1f)`
+        // directly. Without it every call site wrapped the content in a Row of its own purely to
+        // get the weight back, and each one picked its own spacing and alignment while doing so.
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
         if (action != null) {
             Row(
                 Modifier.widthIn(min = actionSlotWidth),

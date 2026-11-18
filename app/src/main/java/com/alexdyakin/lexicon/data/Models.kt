@@ -366,6 +366,28 @@ data class PlaylistReorderRequest(val mediaFileIds: List<Int>)
 @Serializable data class PlaylistImportProgress(val message: String = "", val total: Int = 0, val successful: Int = 0, val failed: Int = 0, val processed: Int = 0, val percentage: Int = 0)
 @Serializable data class PlaylistImportCompleted(val playlistId: Int = 0, val totalTracks: Int = 0, val successfulTracks: Int = 0, val failedTracks: Int = 0, val message: String = "")
 
+@Serializable data class TorrentStatus(
+    val ready: Boolean = false,
+    val qbittorrentUp: Boolean = false,
+    val boundToTunnel: Boolean = false,
+    val message: String = "",
+)
+@Serializable data class TorrentSubmitResponse(val success: Boolean = false, val infoHash: String = "", val name: String = "", val status: String = "", val error: String = "")
+@Serializable data class TorrentListResponse(val success: Boolean = false, val torrents: List<TorrentProgress> = emptyList())
+@Serializable data class TorrentProgress(
+    val infoHash: String = "",
+    val name: String = "",
+    /** PREPARING, DOWNLOADING, IMPORTING, COMPLETED, FAILED or CANCELLED. */
+    val status: String = "",
+    val error: String? = null,
+    val percent: Int = 0,
+    val downloadSpeed: Long = 0,
+    val eta: Long = 0,
+    /** True when the download has stopped moving, usually because the VPN tunnel changed. */
+    val stalled: Boolean = false,
+    val mediaFileIds: List<Int> = emptyList(),
+)
+
 @Serializable data class MediaUpdateRequest(val title: String? = null, val description: String? = null, val isPublic: Boolean? = null, val mediaType: String? = null)
 
 @Serializable

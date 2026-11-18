@@ -11,6 +11,7 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaybackApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.api.ProfileApi
+import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.api.LiveStreamApi
 import com.alexdyakin.lexicon.data.api.PokemonApi
 import com.alexdyakin.lexicon.data.api.NotificationApi
@@ -146,6 +147,9 @@ object NetworkModule {
 
     @Provides @Singleton
     fun playlistApi(@LexiconRetrofit r: Retrofit): PlaylistApi = r.create(PlaylistApi::class.java)
+
+    @Provides @Singleton
+    fun torrentApi(@LexiconRetrofit r: Retrofit): TorrentApi = r.create(TorrentApi::class.java)
 
     @Provides @Singleton
     fun playbackApi(@LexiconRetrofit r: Retrofit): PlaybackApi = r.create(PlaybackApi::class.java)

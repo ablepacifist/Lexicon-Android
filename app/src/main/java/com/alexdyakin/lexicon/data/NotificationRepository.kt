@@ -5,6 +5,8 @@ import com.alexdyakin.lexicon.data.di.SseOkHttp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,6 +63,20 @@ class NotificationRepository @Inject constructor(
         connectStream(userId)
     }
 
+    /**
+     * Closes the live stream. There was no way to do this before: `start()` was called from the
+     * Home screen's badge view model — the app's start destination — and the `EventSource` it
+     * opened had no `cancel()` caller anywhere, so it stayed open for the life of the process.
+     *
+     * Safe to stop while backgrounded: Web Push (FCM) is what delivers notifications when the
+     * app is not in front of the user, and `start()` refreshes the feed when they return.
+     */
+    fun stop() {
+        eventSource?.cancel()
+        eventSource = null
+        streamUserId = null
+    }
+
     private fun connectStream(userId: Int) {
         eventSource?.cancel()
         streamUserId = userId
@@ -100,8 +116,13 @@ class NotificationRepository @Inject constructor(
         scope.launch {
             _feed.update { it.copy(loading = true, message = null) }
             val userId = tokenStore.userId
-            val history = safeApiCall { api.history(userId) }
-            val unread = safeApiCall { api.unreadCount(userId) }
+            // Independent calls, so they go together. There is no `async` anywhere else in
+            // this app either — every multi-call refresh pays its round trips in series.
+            val (history, unread) = coroutineScope {
+                val h = async { safeApiCall { api.history(userId) } }
+                val u = async { safeApiCall { api.unreadCount(userId) } }
+                h.await() to u.await()
+            }
             _feed.update {
                 it.copy(
                     loading = false,

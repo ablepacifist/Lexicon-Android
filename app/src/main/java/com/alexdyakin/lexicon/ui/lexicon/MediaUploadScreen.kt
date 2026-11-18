@@ -57,8 +57,10 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.safeApiCall
+import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
@@ -351,11 +353,19 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         }
     }
 
-    // Poll only while this section is open, so the screen is not talking to the server in
-    // the background for no reason.
-    DisposableEffect(mode) {
-        if (mode == "TORRENT") viewModel.watchTorrents() else viewModel.stopWatchingTorrents()
-        onDispose { viewModel.stopWatchingTorrents() }
+    // Poll only while this section is open **and** the app is actually in front of the user.
+    // The comment here used to claim the former, but DisposableEffect's onDispose fires on
+    // leaving composition, not on backgrounding — so with the Torrent tab open and the phone
+    // in a pocket, this kept making a network call every three seconds indefinitely.
+    LaunchedWhileResumed(mode) {
+        if (mode == "TORRENT") {
+            try {
+                viewModel.watchTorrents()
+                awaitCancellation()
+            } finally {
+                viewModel.stopWatchingTorrents()
+            }
+        }
     }
 
     val filtered = remember(state.mediaFiles, filterType) {

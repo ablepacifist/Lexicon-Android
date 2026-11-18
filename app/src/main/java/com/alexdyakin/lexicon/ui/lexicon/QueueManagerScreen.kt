@@ -78,6 +78,8 @@ import javax.inject.Inject
  * channels — that is the whole point of it, and the web keeps the channel in `?channel=`.
  */
 private const val QM_RECONNECT_MS = 3_000L
+/** Ceiling for the SSE reconnect backoff, so an offline phone stops hammering. */
+private const val QM_RECONNECT_MAX_MS = 60_000L
 
 enum class QueueFilter(val label: String, val mediaType: String?) {
     ALL("🎯 All", null),
@@ -115,6 +117,7 @@ class QueueManagerViewModel @Inject constructor(
 
     private var eventSource: EventSource? = null
     private var reconnectJob: Job? = null
+    private var reconnectDelayMs = QM_RECONNECT_MS
     private var started = false
 
     fun start(channel: String) {
@@ -174,6 +177,7 @@ class QueueManagerViewModel @Inject constructor(
 
         eventSource = EventSources.createFactory(sseClient).newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
+                reconnectDelayMs = QM_RECONNECT_MS
                 _state.value = _state.value.copy(connected = true)
             }
 
@@ -208,9 +212,13 @@ class QueueManagerViewModel @Inject constructor(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
                 _state.value = _state.value.copy(connected = false)
                 eventSource.cancel()
-                // The web uses a flat 3s retry here, not the stream page's backoff.
+                // The web client retries flat every 3s. On a phone that is a different
+                // proposition: offline, it meant a connection attempt every three seconds
+                // forever, and nothing stopped it when the app went to the background. Back
+                // off to a ceiling instead, and reset the delay once a connection succeeds.
                 reconnectJob = viewModelScope.launch {
-                    delay(QM_RECONNECT_MS)
+                    delay(reconnectDelayMs)
+                    reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(QM_RECONNECT_MAX_MS)
                     connectStream()
                 }
             }

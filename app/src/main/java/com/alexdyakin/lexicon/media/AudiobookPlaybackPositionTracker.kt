@@ -9,6 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,11 +43,24 @@ class AudiobookPlaybackPositionTracker @Inject constructor(
                 lastObserved = current
             }
         }
+        // Ticks only while an audiobook is actually playing, rather than waking every 15
+        // seconds for the life of the process to call a `save()` that immediately returns
+        // because nothing is loaded.
+        //
+        // Deliberately keyed off **playback**, not the UI lifecycle: the whole point of this
+        // class is that an audiobook keeps saving its position while the screen is off and
+        // while the user is in another app. Pausing and track changes are already handled by
+        // the collector above, which saves immediately.
         scope.launch {
-            while (true) {
-                delay(SAVE_INTERVAL_MS)
-                save(player.state.value)
-            }
+            player.state
+                .map { it.isAudiobook && it.isPlaying }
+                .distinctUntilChanged()
+                .collectLatest { active ->
+                    while (active) {
+                        delay(SAVE_INTERVAL_MS)
+                        save(player.state.value)
+                    }
+                }
         }
     }
 

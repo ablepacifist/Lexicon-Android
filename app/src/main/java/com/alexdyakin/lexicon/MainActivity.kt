@@ -15,8 +15,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -69,7 +67,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 /** Screen transition duration. Short enough not to slow navigation down. */
-private const val NAV_ANIM_MS = 340
+private const val NAV_ANIM_MS = 200
 
 object Routes {
     const val LOGIN = "login"
@@ -135,6 +133,7 @@ class MainActivity : ComponentActivity() {
                 LexiconApp(
                     tokenStore = tokenStore,
                     initialRoute = intent?.getStringExtra(EXTRA_ROUTE),
+                    skipLaunchSequence = intent?.getBooleanExtra(EXTRA_SKIP_LAUNCH, false) == true,
                     onSignedOut = {
                         // Lexi speaks to the brain as the signed-in user, so it must not
                         // carry on listening for whoever picks the phone up next.
@@ -169,18 +168,33 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        /** A route to open on launch, used by Lexi's notification. */
+        /**
+         * A route to open on launch. Used by Lexi's notification, and by
+         * `adb shell am start -n …/.MainActivity -e route <route>` when sweeping the app for
+         * screenshots. Any route the nav graph holds is accepted; anything else is ignored.
+         */
         const val EXTRA_ROUTE = "route"
+
+        /**
+         * Skips the launch animation. Only for tooling — a screenshot sweep that sat through
+         * the sequence on every one of 30 routes would spend most of its time watching a logo.
+         */
+        const val EXTRA_SKIP_LAUNCH = "skipLaunch"
     }
 }
 
 @Composable
-private fun LexiconApp(tokenStore: TokenStore, initialRoute: String?, onSignedOut: () -> Unit) {
+private fun LexiconApp(
+    tokenStore: TokenStore,
+    initialRoute: String?,
+    skipLaunchSequence: Boolean = false,
+    onSignedOut: () -> Unit,
+) {
     val navController = rememberNavController()
 
     // Shown once per cold start, over the app rather than as a nav destination, so it
     // never lands on the back stack and cannot be returned to.
-    var launching by rememberSaveable { mutableStateOf(true) }
+    var launching by rememberSaveable { mutableStateOf(!skipLaunchSequence) }
 
     // A stored bearer token means the session survived the app being killed
     val start = remember { if (tokenStore.isLoggedIn) Routes.HOME else Routes.LOGIN }
@@ -198,28 +212,26 @@ private fun LexiconApp(tokenStore: TokenStore, initialRoute: String?, onSignedOu
     NavHost(
         navController = navController,
         startDestination = start,
-        // The incoming screen travels a third of the width and grows very slightly into
-        // place while the outgoing one recedes, which reads as one screen sitting on top
-        // of another rather than as a cross-fade you have to look for.
+        // Slide plus fade, and nothing else. This used to also scale both screens, so every
+        // navigation ran three simultaneous animations for 340ms while the incoming screen was
+        // still decoding its background bitmap. The scale did almost no work at 0.94-1.0 and
+        // cost a relayout; dropping it and shortening the tween makes the app feel immediate
+        // without losing the sense of direction.
         enterTransition = {
             slideInHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it / 3 } +
-                fadeIn(animationSpec = tween(NAV_ANIM_MS)) +
-                scaleIn(animationSpec = tween(NAV_ANIM_MS), initialScale = 0.94f)
+                fadeIn(animationSpec = tween(NAV_ANIM_MS))
         },
         exitTransition = {
             slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 5 } +
-                fadeOut(animationSpec = tween(NAV_ANIM_MS)) +
-                scaleOut(animationSpec = tween(NAV_ANIM_MS), targetScale = 0.96f)
+                fadeOut(animationSpec = tween(NAV_ANIM_MS))
         },
         popEnterTransition = {
             slideInHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { -it / 5 } +
-                fadeIn(animationSpec = tween(NAV_ANIM_MS)) +
-                scaleIn(animationSpec = tween(NAV_ANIM_MS), initialScale = 0.96f)
+                fadeIn(animationSpec = tween(NAV_ANIM_MS))
         },
         popExitTransition = {
             slideOutHorizontally(animationSpec = tween(NAV_ANIM_MS, easing = FastOutSlowInEasing)) { it / 3 } +
-                fadeOut(animationSpec = tween(NAV_ANIM_MS)) +
-                scaleOut(animationSpec = tween(NAV_ANIM_MS), targetScale = 0.94f)
+                fadeOut(animationSpec = tween(NAV_ANIM_MS))
         },
     ) {
         composable(Routes.LOGIN) {
@@ -376,9 +388,13 @@ private fun LexiconApp(tokenStore: TokenStore, initialRoute: String?, onSignedOu
         composable(Routes.LEXI) { LexiScreen(onBack = { navController.popBackStack() }) }
     }
 
-    // Deep link from a notification, honoured only for a signed-in user.
+    // Deep link from a notification, or from the screenshot sweep. Honoured only for a
+    // signed-in user, and only for a route the graph actually holds — an unknown or
+    // malformed extra is ignored rather than throwing.
     LaunchedEffect(Unit) {
-        if (initialRoute == Routes.LEXI && start == Routes.HOME) navController.navigate(Routes.LEXI)
+        if (initialRoute.isNullOrBlank() || start != Routes.HOME) return@LaunchedEffect
+        if (initialRoute == Routes.HOME) return@LaunchedEffect
+        runCatching { navController.navigate(initialRoute) }
     }
 
         if (launching) {

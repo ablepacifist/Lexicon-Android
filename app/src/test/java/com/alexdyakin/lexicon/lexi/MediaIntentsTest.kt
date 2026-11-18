@@ -21,6 +21,18 @@ class MediaIntentsTest {
     }
 
     @Test
+    fun `filler words do not push a command to the brain`() {
+        // These used to fall through to Obrenna, which is usually off — so "just stop"
+        // stopped nothing.
+        assertEquals(MediaIntent.Stop, matchMediaIntent("just stop"))
+        assertEquals(MediaIntent.Stop, matchMediaIntent("Just stop."))
+        assertEquals(MediaIntent.Next, matchMediaIntent("okay skip"))
+        assertEquals(MediaIntent.Next, matchMediaIntent("yeah next song"))
+        assertEquals(MediaIntent.LiveStream, matchMediaIntent("just play the live stream"))
+        assertEquals(MediaIntent.PlayTrack("dragon rider"), matchMediaIntent("ok please play dragon rider"))
+    }
+
+    @Test
     fun `the live stream beats a track called live stream`() {
         // "play the live stream" must join the stream, not search for a track by that
         // name — which is why the live-stream pattern is tested before the play pattern.

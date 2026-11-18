@@ -34,6 +34,8 @@ import com.alexdyakin.lexicon.data.NotificationRepository
 import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import kotlinx.coroutines.awaitCancellation
+import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,9 +76,14 @@ class NotificationsViewModel @Inject constructor(
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotificationsUiState())
 
-    init {
-        repository.start()
-    }
+    /**
+     * Driven by the screen rather than by `init`, so the live stream is open only while a
+     * screen that shows notifications is actually in front of the user. It used to start in
+     * `init` on the app's start destination and never stop.
+     */
+    fun startStream() = repository.start()
+
+    fun stopStream() = repository.stop()
 
     fun refresh() = repository.refresh()
 
@@ -91,7 +98,17 @@ class NotificationsViewModel @Inject constructor(
 @Composable
 fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    ScreenScaffold("Notifications", onBack, R.drawable.bg_lexicon_room) { padding ->
+
+    LaunchedWhileResumed {
+        try {
+            viewModel.startStream()
+            awaitCancellation()
+        } finally {
+            viewModel.stopStream()
+        }
+    }
+
+    ScreenScaffold("Notifications", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.items.isEmpty() -> EmptyBox(padding, "No notifications yet")

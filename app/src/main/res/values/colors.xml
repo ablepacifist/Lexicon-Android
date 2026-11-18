@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the window chrome before Compose's first frame. The real palette is
+  ui/theme/Color.kt; these two must stay in step with LexPalette.Ground and LexPalette.Indigo.
+-->
 <resources>
-    <color name="ink">#FF17130E</color>
-    <color name="gold">#FFC8A24C</color>
+    <color name="ground">#FF0A0A0F</color>
+    <color name="indigo">#FF6366F1</color>
 </resources>

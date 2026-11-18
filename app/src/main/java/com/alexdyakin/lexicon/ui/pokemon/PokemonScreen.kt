@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,7 +89,7 @@ fun PokemonScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    ScreenScaffold(title = "Pokémon", onBack = onBack, background = R.drawable.bg_dashboard, actions = { TextButton(onClick = onOpenPokedex) { Text("Dex") }; TextButton(onClick = onOpenEggs) { Text("Eggs") }; TextButton(onClick = onOpenShop) { Text("Shop") } }) { padding ->
+    ScreenScaffold(title = "Pokémon", onBack = onBack, actions = { TextButton(onClick = onOpenPokedex) { Text("Dex") }; TextButton(onClick = onOpenEggs) { Text("Eggs") }; TextButton(onClick = onOpenShop) { Text("Shop") } }) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.error != null -> EmptyBox(padding, state.error!!)

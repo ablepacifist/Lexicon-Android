@@ -296,7 +296,6 @@ fun PlaylistScreen(onBack: () -> Unit, viewModel: PlaylistViewModel = hiltViewMo
     ScreenScaffold(
         title = detail?.name ?: "Playlists",
         onBack = { if (detail != null) viewModel.closeDetail() else onBack() },
-        background = R.drawable.bg_dashboard,
     ) { padding ->
         if (state.loading) { LoadingBox(padding); return@ScreenScaffold }
         Column(Modifier.fillMaxSize().padding(padding)) {

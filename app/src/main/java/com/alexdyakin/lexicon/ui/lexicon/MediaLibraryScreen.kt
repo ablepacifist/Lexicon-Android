@@ -13,9 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +31,8 @@ import com.alexdyakin.lexicon.data.MediaFile
 import com.alexdyakin.lexicon.data.MediaKind
 import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
+import com.alexdyakin.lexicon.ui.components.LexIconButton
+import com.alexdyakin.lexicon.ui.components.LexTone
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -70,7 +75,6 @@ fun MediaLibraryScreen(
     ScreenScaffold(
         title = title,
         onBack = onBack,
-        background = R.drawable.bg_dashboard,
         actions = { if (showUploadAction) TextButton(onClick = onOpenUpload) { Text("Add") } },
         bottomBar = {
             // Mini-player docks above the content whenever something is loaded
@@ -327,20 +331,22 @@ fun MiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onToggle) {
-                    Text(
-                        if (state.isPlaying) "⏸" else "▶",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                IconButton(onClick = onNext, enabled = state.hasNext) {
-                    Text(
-                        "⏭",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                // These were the emoji "⏸"/"▶"/"⏭" — glyphs that do not tint, do not scale with
+                // the icon size, carry no content description, and whose width varies by device
+                // font. The same vectors every other transport uses now.
+                LexIconButton(
+                    icon = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play",
+                    onClick = onToggle,
+                    tone = LexTone.Primary,
+                )
+                LexIconButton(
+                    icon = Icons.Filled.SkipNext,
+                    contentDescription = "Next",
+                    onClick = onNext,
+                    enabled = state.hasNext,
+                    tone = LexTone.Primary,
+                )
             }
         }
     }

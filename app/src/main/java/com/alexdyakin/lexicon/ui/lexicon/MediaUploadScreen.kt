@@ -25,10 +25,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,15 +51,21 @@ import com.alexdyakin.lexicon.data.ApiResult
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.MediaFile
 import com.alexdyakin.lexicon.data.MediaUpdateRequest
+import com.alexdyakin.lexicon.data.TorrentProgress
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
+import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
+import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -66,18 +74,35 @@ import javax.inject.Inject
 
 enum class BrowseSource { NONE, MY, PUBLIC, SEARCH }
 
+/** One line describing where a torrent has got to, mirroring the website's wording. */
+private fun torrentStatusText(torrent: TorrentProgress): String = when {
+    torrent.status == "FAILED" -> "Failed"
+    torrent.status == "COMPLETED" -> "Added to your library"
+    torrent.status == "IMPORTING" -> "Adding to Lexicon..."
+    torrent.status == "PREPARING" -> "Looking up the torrent..."
+    torrent.stalled -> "Stalled - check that the VPN is still connected"
+    torrent.downloadSpeed > 0 ->
+        "${torrent.percent}% - %.1f MB/s".format(torrent.downloadSpeed / (1024.0 * 1024.0))
+    else -> "${torrent.percent}% - no peers yet"
+}
+
 data class MediaUploadUiState(
     val saving: Boolean = false,
     val loading: Boolean = false,
     val message: String? = null,
     val mediaFiles: List<MediaFile> = emptyList(),
     val browseSource: BrowseSource = BrowseSource.NONE,
+    /** Null until the server has been asked whether torrent downloads are possible. */
+    val torrentReady: Boolean? = null,
+    val torrentBlockedReason: String = "",
+    val torrents: List<TorrentProgress> = emptyList(),
 )
 
 @HiltViewModel
 class MediaUploadViewModel @Inject constructor(
     private val api: MediaApi,
     private val playlistApi: PlaylistApi,
+    private val torrentApi: TorrentApi,
     private val tokenStore: TokenStore,
 ) : ViewModel() {
 
@@ -142,6 +167,110 @@ class MediaUploadViewModel @Inject constructor(
         }
     }
 
+    // ── Torrents ─────────────────────────────────────────────────────────────────
+    // The Lexicon machine downloads these through its VPN and keeps only .mp3 and .mp4
+    // files. It will not start qBittorrent by itself, so the screen asks first whether a
+    // download is possible and says why when it is not.
+
+    private var torrentPoll: Job? = null
+
+    /** Polls while the torrent section is on screen; stopped by [stopWatchingTorrents]. */
+    fun watchTorrents() {
+        if (torrentPoll?.isActive == true) return
+        torrentPoll = viewModelScope.launch {
+            checkTorrentReadiness()
+            while (isActive) {
+                when (val result = safeApiCall { torrentApi.active(tokenStore.userId) }) {
+                    is ApiResult.Success -> _state.value = _state.value.copy(torrents = result.data.torrents)
+                    // A failed poll is normal when the server restarts; the next one recovers.
+                    else -> Unit
+                }
+                delay(TORRENT_POLL_MS)
+            }
+        }
+    }
+
+    fun stopWatchingTorrents() {
+        torrentPoll?.cancel()
+        torrentPoll = null
+    }
+
+    private suspend fun checkTorrentReadiness() {
+        when (val result = safeApiCall { torrentApi.status() }) {
+            is ApiResult.Success -> _state.value = _state.value.copy(
+                torrentReady = result.data.ready,
+                torrentBlockedReason = if (result.data.ready) "" else result.data.message,
+            )
+            is ApiResult.Failure -> _state.value = _state.value.copy(
+                torrentReady = false,
+                torrentBlockedReason = result.message,
+            )
+            ApiResult.Unauthorized -> _state.value = _state.value.copy(
+                torrentReady = false,
+                torrentBlockedReason = "Sign in again to download torrents.",
+            )
+        }
+    }
+
+    fun submitTorrentFile(bytes: ByteArray, filename: String, title: String, isPublic: Boolean) =
+        submitTorrent {
+            val part = MultipartBody.Part.createFormData(
+                "file", filename, bytes.toRequestBody("application/x-bittorrent".toMediaTypeOrNull()))
+            torrentApi.submitFile(
+                part,
+                tokenStore.userId.toString().toRequestBody(),
+                title.toRequestBody(),
+                isPublic.toString().toRequestBody())
+        }
+
+    fun submitTorrentUrl(url: String, title: String, isPublic: Boolean) =
+        submitTorrent { torrentApi.submitUrl(url, tokenStore.userId, title, isPublic) }
+
+    private fun submitTorrent(call: suspend () -> com.alexdyakin.lexicon.data.TorrentSubmitResponse) =
+        viewModelScope.launch {
+            _state.value = _state.value.copy(saving = true, message = null)
+            when (val result = safeApiCall { call() }) {
+                is ApiResult.Success -> _state.value = _state.value.copy(
+                    saving = false,
+                    message = "Downloading \"${result.data.name}\". Only .mp3 and .mp4 files will be added.",
+                )
+                // The server explains the fixable cases here: no VPN, no space, no media
+                // in the torrent, too many at once.
+                is ApiResult.Failure -> _state.value = _state.value.copy(saving = false, message = result.message)
+                ApiResult.Unauthorized -> _state.value =
+                    _state.value.copy(saving = false, message = "Sign in again to download torrents.")
+            }
+            refreshTorrents()
+        }
+
+    fun removeTorrent(infoHash: String) = viewModelScope.launch {
+        _state.value = _state.value.copy(saving = true, message = null)
+        when (val result = safeApiCall { torrentApi.remove(infoHash, tokenStore.userId) }) {
+            is ApiResult.Success -> _state.value =
+                _state.value.copy(saving = false, message = "Torrent removed.")
+            is ApiResult.Failure -> _state.value = _state.value.copy(saving = false, message = result.message)
+            ApiResult.Unauthorized -> _state.value =
+                _state.value.copy(saving = false, message = "That torrent is not yours.")
+        }
+        refreshTorrents()
+    }
+
+    private suspend fun refreshTorrents() {
+        safeApiCall { torrentApi.active(tokenStore.userId) }.successOrNull?.let { list ->
+            _state.value = _state.value.copy(torrents = list.torrents)
+        }
+    }
+
+    override fun onCleared() {
+        stopWatchingTorrents()
+        super.onCleared()
+    }
+
+    /** For problems the screen itself finds, such as a file it cannot read. */
+    fun messageFromScreen(message: String) {
+        _state.value = _state.value.copy(message = message)
+    }
+
     fun clearMessage() {
         _state.value = _state.value.copy(message = null)
     }
@@ -162,6 +291,10 @@ class MediaUploadViewModel @Inject constructor(
             BrowseSource.SEARCH -> Unit
             BrowseSource.NONE -> Unit
         }
+    }
+
+    private companion object {
+        const val TORRENT_POLL_MS = 3000L
     }
 
     private fun loadBrowse(source: BrowseSource, call: suspend () -> List<MediaFile>) = viewModelScope.launch {
@@ -202,6 +335,39 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected -> uri = selected }
 
+    var torrentUri by remember { mutableStateOf<Uri?>(null) }
+    var torrentUrl by remember { mutableStateOf("") }
+    var torrentTitle by remember { mutableStateOf("") }
+    var torrentPublic by remember { mutableStateOf(false) }
+    // Separate launcher from the media one: a .torrent is neither audio nor video, and many
+    // file providers report it as application/octet-stream regardless of its extension.
+    val torrentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected ->
+        torrentUri = selected
+        if (selected != null) {
+            torrentUrl = ""
+            if (torrentTitle.isBlank()) {
+                torrentTitle = (selected.lastPathSegment ?: "")
+                    .substringAfterLast('/')
+                    .removeSuffix(".torrent")
+            }
+        }
+    }
+
+    // Poll only while this section is open **and** the app is actually in front of the user.
+    // The comment here used to claim the former, but DisposableEffect's onDispose fires on
+    // leaving composition, not on backgrounding — so with the Torrent tab open and the phone
+    // in a pocket, this kept making a network call every three seconds indefinitely.
+    LaunchedWhileResumed(mode) {
+        if (mode == "TORRENT") {
+            try {
+                viewModel.watchTorrents()
+                awaitCancellation()
+            } finally {
+                viewModel.stopWatchingTorrents()
+            }
+        }
+    }
+
     val filtered = remember(state.mediaFiles, filterType) {
         if (filterType == "ALL") state.mediaFiles
         else state.mediaFiles.filter { (it.mediaType.ifBlank { "OTHER" }).equals(filterType, ignoreCase = true) }
@@ -219,7 +385,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         )
     }
 
-    ScreenScaffold("Add media", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Add media", onBack) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -241,7 +407,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
 
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("FILE", "LINK", "PLAYLIST", "BROWSE").forEach { option ->
+                    listOf("FILE", "LINK", "TORRENT", "PLAYLIST", "BROWSE").forEach { option ->
                         FilterChip(
                             selected = mode == option,
                             onClick = {
@@ -331,6 +497,131 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                                 enabled = !state.saving && title.isNotBlank() && ((mode == "LINK" && url.isNotBlank()) || (mode == "FILE" && uri != null)),
                             ) {
                                 Text(if (state.saving) "Working..." else if (mode == "LINK") "Download & add" else "Upload file")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (mode == "TORRENT") {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Torrent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "The Lexicon machine downloads this over its VPN and adds only the .mp3 and " +
+                                    ".mp4 files - nothing else in the torrent is downloaded. Deleting an added " +
+                                    "file later also removes it from the torrent.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            if (state.torrentReady == false) {
+                                Text(
+                                    state.torrentBlockedReason.ifBlank { "Torrent downloads are unavailable." },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Button(onClick = {
+                                    torrentPicker.launch(arrayOf("application/x-bittorrent", "application/octet-stream", "*/*"))
+                                }) {
+                                    Text("Choose .torrent")
+                                }
+                                Text(
+                                    torrentUri?.lastPathSegment?.substringAfterLast('/') ?: "No file chosen",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            OutlinedTextField(
+                                value = torrentUrl,
+                                onValueChange = {
+                                    torrentUrl = it
+                                    if (it.isNotBlank()) torrentUri = null
+                                },
+                                label = { Text("Or a magnet link / .torrent URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = torrentTitle,
+                                onValueChange = { torrentTitle = it },
+                                label = { Text("Name (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Public", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                                Switch(checked = torrentPublic, onCheckedChange = { torrentPublic = it })
+                            }
+
+                            Button(
+                                onClick = {
+                                    val chosen = torrentUri
+                                    if (chosen != null) {
+                                        // A .torrent is a few kilobytes, so reading it whole is fine.
+                                        val bytes = context.contentResolver.openInputStream(chosen)?.use { it.readBytes() }
+                                        if (bytes == null) {
+                                            viewModel.messageFromScreen("Could not read that file.")
+                                        } else {
+                                            viewModel.submitTorrentFile(
+                                                bytes,
+                                                chosen.lastPathSegment?.substringAfterLast('/') ?: "upload.torrent",
+                                                torrentTitle.trim(),
+                                                torrentPublic,
+                                            )
+                                            torrentUri = null
+                                            torrentTitle = ""
+                                        }
+                                    } else {
+                                        viewModel.submitTorrentUrl(torrentUrl.trim(), torrentTitle.trim(), torrentPublic)
+                                        torrentUrl = ""
+                                        torrentTitle = ""
+                                    }
+                                },
+                                enabled = !state.saving && state.torrentReady != false &&
+                                    (torrentUri != null || torrentUrl.isNotBlank()),
+                            ) {
+                                Text(if (state.saving) "Working..." else "Start download")
+                            }
+                        }
+                    }
+                }
+
+                items(state.torrents, key = { it.infoHash }) { torrent ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                torrent.name.ifBlank { "Torrent" },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            LinearProgressIndicator(
+                                progress = { torrent.percent / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                torrentStatusText(torrent),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            torrent.error?.takeIf { it.isNotBlank() }?.let { error ->
+                                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                            OutlinedButton(onClick = { viewModel.removeTorrent(torrent.infoHash) }) {
+                                Text("Remove")
                             }
                         }
                     }
@@ -485,7 +776,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
 
             item {
                 Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Text("Default media type: Music", color = OnScrimDim, style = MaterialTheme.typography.labelSmall)
+                    Text("Default media type: Music", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

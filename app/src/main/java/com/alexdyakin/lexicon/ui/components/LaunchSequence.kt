@@ -33,7 +33,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
 import com.alexdyakin.lexicon.R
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 
 /** Red pulled from the cube's own rune glow, so the drawn ring belongs to the artwork. */
 private val RuneRed = Color(0xFFE03A2F)
@@ -82,14 +83,19 @@ fun LaunchSequence(onFinished: () -> Unit) {
     )
 
     LaunchedEffect(Unit) {
-        // The sigil lands first, overshooting very slightly so it has some weight.
-        cubeAlpha.animateTo(1f, tween(320))
-        cubeScale.animateTo(1f, tween(520, easing = EaseOutBack))
-        settleSpin.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
-        // Then the ring is inscribed around it.
-        ringSweep.animateTo(1f, tween(560, easing = FastOutSlowInEasing))
-        delay(140)
-        exitAlpha.animateTo(0f, tween(280))
+        // These four used to run one after another — 320 + 520 + 520 + 560, then a 140ms hold
+        // and a 280ms fade, so every cold start sat behind 2,340ms of animation before the app
+        // was reachable. They are independent of each other, so they run together now: the sigil
+        // lands, settles and has its ring inscribed in one beat rather than four.
+        //
+        // launch{} rather than four more awaits, so the slowest one sets the pace.
+        listOf(
+            launch { cubeAlpha.animateTo(1f, tween(220)) },
+            launch { cubeScale.animateTo(1f, tween(420, easing = EaseOutBack)) },
+            launch { settleSpin.animateTo(0f, tween(420, easing = FastOutSlowInEasing)) },
+            launch { ringSweep.animateTo(1f, tween(460, easing = FastOutSlowInEasing)) },
+        ).joinAll()
+        exitAlpha.animateTo(0f, tween(200))
         onFinished()
     }
 

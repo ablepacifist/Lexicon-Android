@@ -22,9 +22,18 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * How often the position is re-read while something is playing. Fast enough for a smooth
+ * scrubber, and it now ticks only during playback rather than for the life of the process.
+ */
+private const val POSITION_TICK_MS = 500L
 
 /** Everything the UI needs to render a player, mirrored out of the MediaController. */
 data class PlayerState(
@@ -80,12 +89,27 @@ class PlayerConnection @Inject constructor(
 
     init {
         connect()
-        // The controller has no position callback — poll while something is playing
+        // The controller has no position callback, so the position has to be polled. This used
+        // to be an unconditional `while (true) { …; delay(500) }` that woke twice a second from
+        // app launch to process death, whether or not anything was playing — and it published
+        // nothing on the vast majority of those wakeups.
+        //
+        // It is now driven by playback state, so it idles completely when paused.
+        //
+        // Deliberately **not** lifecycle-aware: playback continues with the screen off and in
+        // other apps, and the media notification, the lock-screen controls and the audiobook
+        // resume tracker all read the position from here. Tying this to the UI lifecycle would
+        // stop the position advancing in exactly the case the product cares about most.
         scope.launch {
-            while (true) {
-                controller?.let { c -> if (c.isPlaying) publish(c) }
-                delay(500)
-            }
+            _state
+                .map { it.isPlaying }
+                .distinctUntilChanged()
+                .collectLatest { playing ->
+                    while (playing) {
+                        controller?.let(::publish)
+                        delay(POSITION_TICK_MS)
+                    }
+                }
         }
     }
 

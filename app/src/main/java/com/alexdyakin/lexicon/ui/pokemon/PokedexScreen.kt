@@ -62,7 +62,7 @@ fun PokedexScreen(onBack: () -> Unit, viewModel: PokedexViewModel = hiltViewMode
     val visible = state.species.filter { species ->
         (filter == "ALL" || (filter == "CAUGHT" && species.id in state.caught) || (filter == "UNCUGHT" && species.id !in state.caught)) && species.name.contains(query, true)
     }
-    ScreenScaffold("Pokédex", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Pokédex", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.error != null -> EmptyBox(padding, state.error!!)

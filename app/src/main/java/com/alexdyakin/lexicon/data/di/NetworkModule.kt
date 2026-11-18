@@ -3,6 +3,7 @@ package com.alexdyakin.lexicon.data.di
 import android.content.Context
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.AuthInterceptor
+import com.alexdyakin.lexicon.BuildConfig
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.api.AlchemyApi
 import com.alexdyakin.lexicon.data.api.AuthApi
@@ -11,6 +12,7 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaybackApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.api.ProfileApi
+import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.api.LiveStreamApi
 import com.alexdyakin.lexicon.data.api.PokemonApi
 import com.alexdyakin.lexicon.data.api.NotificationApi
@@ -74,8 +76,15 @@ object NetworkModule {
         @ApplicationContext context: Context,
         tokenStore: TokenStore,
     ): OkHttpClient {
+        // Debug builds only. This used to be added unconditionally, and since the release
+        // build has no minification to strip it, every release request paid to format a log
+        // line nobody could read.
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
         // MobileTokenAuthFilter calls getSession(true), so without a cookie jar every
         // bearer request mints a fresh server-side session. This matches the browser.
@@ -146,6 +155,9 @@ object NetworkModule {
 
     @Provides @Singleton
     fun playlistApi(@LexiconRetrofit r: Retrofit): PlaylistApi = r.create(PlaylistApi::class.java)
+
+    @Provides @Singleton
+    fun torrentApi(@LexiconRetrofit r: Retrofit): TorrentApi = r.create(TorrentApi::class.java)
 
     @Provides @Singleton
     fun playbackApi(@LexiconRetrofit r: Retrofit): PlaybackApi = r.create(PlaybackApi::class.java)

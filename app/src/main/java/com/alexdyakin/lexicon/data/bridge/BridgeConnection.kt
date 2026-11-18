@@ -256,7 +256,7 @@ class BridgeConnection @Inject constructor(
     }
 
     private fun backoffMs(attempt: Int): Long {
-        val exponential = BASE_BACKOFF_MS shl (attempt - 1).coerceIn(0, 6)
+        val exponential = BASE_BACKOFF_MS shl (attempt - 1).coerceIn(0, 9)
         val capped = min(exponential, MAX_BACKOFF_MS)
         // Jitter, so several clients recovering from one outage do not sync up.
         return capped / 2 + Random.nextLong(capped / 2 + 1)
@@ -272,7 +272,16 @@ class BridgeConnection @Inject constructor(
         const val TAG = "BridgeConnection"
         const val NORMAL_CLOSURE = 1000
         const val BASE_BACKOFF_MS = 1_000L
-        const val MAX_BACKOFF_MS = 30_000L
+        /**
+         * Ceiling for the reconnect backoff.
+         *
+         * Was 30s, which meant an offline phone retried twice a minute **forever** — and each
+         * attempt is not cheap: `connectOnce` mints a fresh SSO token over HTTP before it even
+         * opens the socket. Five minutes keeps a genuine outage recoverable without making the
+         * bridge a background drain. The happy path is untouched: a successful connection
+         * resets `attempt` to 0, so the first retry after a normal drop is still ~1s.
+         */
+        const val MAX_BACKOFF_MS = 300_000L
 
         /**
          * Generous on purpose: the bridge chains several five-second Lexicon calls

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alexdyakin.lexicon.R
+import com.alexdyakin.lexicon.ui.theme.LexGround
 
 @Composable
 fun LoginScreen(
@@ -50,7 +52,7 @@ fun LoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
-        KenBurnsBackground()
+        AuthBackground()
 
         Column(
             modifier = Modifier
@@ -175,42 +177,20 @@ fun LoginScreen(
 }
 
 /**
- * Slow scale/drift over the Lexicon room art so the login screen breathes
- * instead of sitting as a flat image.
+ * The login ground — the same gradient every other screen uses, so Login and Register are
+ * finally siblings rather than two different-looking apps one tap apart.
+ *
+ * This replaced a Ken Burns drift over `bg_login.jpg`. The art was 2048×1536 in the
+ * density-less `res/drawable/` folder, so the platform upscaled it on decode, and it sat under
+ * a 45–75% black gradient that hid most of it — paid for on the very first frame of a cold
+ * start, plus an 18-second infinite animation that kept the frame clock busy for as long as
+ * anyone sat on the login screen.
  */
 @Composable
-private fun KenBurnsBackground() {
-    val transition = rememberInfiniteTransition(label = "kenburns")
-    val scale by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(18_000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "scale",
-    )
-
-    Image(
-        painter = painterResource(R.drawable.bg_login),
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier
-            .fillMaxSize()
-            .scale(scale),
-    )
-
-    // Darken toward the bottom so the form stays readable over any frame
+internal fun AuthBackground() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = 0.45f),
-                        Color.Black.copy(alpha = 0.75f),
-                    )
-                )
-            )
+            .background(LexGround)
     )
 }

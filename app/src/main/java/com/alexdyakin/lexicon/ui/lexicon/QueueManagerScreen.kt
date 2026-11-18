@@ -52,8 +52,6 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.di.SseOkHttp
 import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.ui.components.OnScrim
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -80,6 +78,8 @@ import javax.inject.Inject
  * channels — that is the whole point of it, and the web keeps the channel in `?channel=`.
  */
 private const val QM_RECONNECT_MS = 3_000L
+/** Ceiling for the SSE reconnect backoff, so an offline phone stops hammering. */
+private const val QM_RECONNECT_MAX_MS = 60_000L
 
 enum class QueueFilter(val label: String, val mediaType: String?) {
     ALL("🎯 All", null),
@@ -117,6 +117,7 @@ class QueueManagerViewModel @Inject constructor(
 
     private var eventSource: EventSource? = null
     private var reconnectJob: Job? = null
+    private var reconnectDelayMs = QM_RECONNECT_MS
     private var started = false
 
     fun start(channel: String) {
@@ -176,6 +177,7 @@ class QueueManagerViewModel @Inject constructor(
 
         eventSource = EventSources.createFactory(sseClient).newEventSource(request, object : EventSourceListener() {
             override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
+                reconnectDelayMs = QM_RECONNECT_MS
                 _state.value = _state.value.copy(connected = true)
             }
 
@@ -210,9 +212,13 @@ class QueueManagerViewModel @Inject constructor(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
                 _state.value = _state.value.copy(connected = false)
                 eventSource.cancel()
-                // The web uses a flat 3s retry here, not the stream page's backoff.
+                // The web client retries flat every 3s. On a phone that is a different
+                // proposition: offline, it meant a connection attempt every three seconds
+                // forever, and nothing stopped it when the app went to the background. Back
+                // off to a ceiling instead, and reset the delay once a connection succeeds.
                 reconnectJob = viewModelScope.launch {
-                    delay(QM_RECONNECT_MS)
+                    delay(reconnectDelayMs)
+                    reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(QM_RECONNECT_MAX_MS)
                     connectStream()
                 }
             }
@@ -283,12 +289,11 @@ fun QueueManagerScreen(
     ScreenScaffold(
         title = if (isMusic) "🎵 Queue Manager" else "🎬 Queue Manager",
         onBack = onBack,
-        background = R.drawable.bg_dashboard,
         actions = {
             Text(
                 if (state.connected) "● Connected" else "○ Connecting...",
                 style = MaterialTheme.typography.labelSmall,
-                color = OnScrimDim,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 12.dp),
             )
         },
@@ -339,7 +344,7 @@ fun QueueManagerScreen(
                         "Live Stream Queue",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -384,18 +389,18 @@ fun QueueManagerScreen(
                     "Up Next (${state.upNext.size})",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = OnScrim,
+                    color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
 
             when {
-                state.loading -> item { Text("Loading queue...", style = MaterialTheme.typography.bodySmall, color = OnScrimDim) }
+                state.loading -> item { Text("Loading queue...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 state.upNext.isEmpty() -> item {
                     Text(
                         "Queue is empty — random media will auto-play",
                         style = MaterialTheme.typography.bodySmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 else -> itemsIndexed(state.upNext, key = { _, item -> "q-${item.id}" }) { index, item ->
@@ -429,13 +434,13 @@ fun QueueManagerScreen(
                         "Browse Media",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         "${state.eligible.size} available",
                         style = MaterialTheme.typography.labelSmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -461,7 +466,7 @@ fun QueueManagerScreen(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sort:", style = MaterialTheme.typography.labelSmall, color = OnScrimDim)
+                    Text("Sort:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     QueueSort.entries.forEach { option ->
                         FilterChip(
                             selected = sort == option,
@@ -475,7 +480,7 @@ fun QueueManagerScreen(
                 Text(
                     "${filtered.size} of ${state.eligible.size} items",
                     style = MaterialTheme.typography.labelSmall,
-                    color = OnScrimDim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -484,7 +489,7 @@ fun QueueManagerScreen(
                     Text(
                         "No matching media",
                         style = MaterialTheme.typography.bodySmall,
-                        color = OnScrimDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

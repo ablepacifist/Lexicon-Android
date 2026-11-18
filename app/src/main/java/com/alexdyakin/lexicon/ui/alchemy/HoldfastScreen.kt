@@ -132,7 +132,6 @@ fun HoldfastScreen(onBack: () -> Unit, viewModel: HoldfastViewModel = hiltViewMo
         {
             if (state.selectedGroupName == null) onBack() else viewModel.closeSelection()
         },
-        R.drawable.bg_dashboard,
     ) { padding ->
         when {
             // Only a genuinely empty first load blanks the screen. Refreshing the list

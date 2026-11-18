@@ -103,7 +103,7 @@ fun PokemonDetailScreen(id: Long, onBack: () -> Unit, viewModel: PokemonDetailVi
     val state by viewModel.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(id) { viewModel.load(id) }
     var nickname by remember(state.pokemon?.id) { mutableStateOf(state.pokemon?.nickname.orEmpty()) }
-    ScreenScaffold("Pokémon details", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Pokémon details", onBack) { padding ->
         when {
             state.loading -> LoadingBox(padding)
             state.pokemon == null -> EmptyBox(padding, state.message ?: "Could not load Pokémon.")

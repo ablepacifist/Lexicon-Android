@@ -19,6 +19,10 @@ import com.alexdyakin.lexicon.data.HoldfastOperationResponse
 import com.alexdyakin.lexicon.data.ReplantHoldfastRequest
 import com.alexdyakin.lexicon.data.WithdrawHoldfastRequest
 import com.alexdyakin.lexicon.data.CurrentUser
+import com.alexdyakin.lexicon.data.TorrentListResponse
+import com.alexdyakin.lexicon.data.TorrentProgress
+import com.alexdyakin.lexicon.data.TorrentStatus
+import com.alexdyakin.lexicon.data.TorrentSubmitResponse
 import com.alexdyakin.lexicon.data.ForageResponse
 import com.alexdyakin.lexicon.data.Inventory
 import com.alexdyakin.lexicon.data.KnowledgeEntry
@@ -158,6 +162,40 @@ interface MediaApi {
     ): MediaUploadResponse
 
     @GET("api/media/storage-info") suspend fun storageInfo(): StorageInfo
+}
+
+/**
+ * Torrent downloads. The server hands the torrent to qBittorrent on the Lexicon machine,
+ * which pulls it over its VPN and adds only the .mp3 and .mp4 files to the library.
+ */
+interface TorrentApi {
+    /** Whether a torrent can be queued right now, and why not when it cannot. */
+    @GET("api/torrents/status") suspend fun status(): TorrentStatus
+
+    @Multipart
+    @POST("api/torrents")
+    suspend fun submitFile(
+        @Part file: MultipartBody.Part,
+        @Part("userId") userId: RequestBody,
+        @Part("title") title: RequestBody,
+        @Part("isPublic") isPublic: RequestBody,
+    ): TorrentSubmitResponse
+
+    @FormUrlEncoded
+    @POST("api/torrents")
+    suspend fun submitUrl(
+        @Field("url") url: String,
+        @Field("userId") userId: Int,
+        @Field("title") title: String,
+        @Field("isPublic") isPublic: Boolean,
+    ): TorrentSubmitResponse
+
+    @GET("api/torrents/active/{userId}")
+    suspend fun active(@Path("userId") userId: Int): TorrentListResponse
+
+    /** Cancels a download, or removes a finished torrent along with its data. */
+    @DELETE("api/torrents/{infoHash}")
+    suspend fun remove(@Path("infoHash") infoHash: String, @Query("userId") userId: Int)
 }
 
 interface PlaylistApi {

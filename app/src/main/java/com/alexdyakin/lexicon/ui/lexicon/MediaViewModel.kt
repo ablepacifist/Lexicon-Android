@@ -34,9 +34,16 @@ data class MediaUiState(
     val query: String = "",
     val error: String? = null,
 ) {
-    /** Filtering and search are local — the library is small enough and it feels instant. */
-    val visible: List<MediaFile>
-        get() = all
+    /**
+     * Filtering and search are local — the library is small enough and it feels instant.
+     *
+     * `by lazy`, not a `get()`. As a computed getter this re-ran both filters on **every**
+     * read, and `MediaLibraryScreen` reads it twice per composition while the 500ms position
+     * tick was recomposing the whole screen twice a second — two 200-element double-filter
+     * passes a tick. The state object is immutable, so computing once per instance is correct.
+     */
+    val visible: List<MediaFile> by lazy {
+        all
             .filter { m ->
                 when (filter) {
                     MediaFilter.ALL -> true
@@ -46,6 +53,7 @@ data class MediaUiState(
                 }
             }
             .filter { m -> query.isBlank() || m.displayTitle.contains(query, ignoreCase = true) }
+    }
 }
 
 @HiltViewModel

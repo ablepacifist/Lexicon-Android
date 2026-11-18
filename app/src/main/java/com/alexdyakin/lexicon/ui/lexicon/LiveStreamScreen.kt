@@ -56,8 +56,6 @@ import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.di.SseOkHttp
 import com.alexdyakin.lexicon.data.safeApiCall
 import com.alexdyakin.lexicon.media.PlayerConnection
-import com.alexdyakin.lexicon.ui.components.OnScrim
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -405,7 +403,6 @@ fun LiveStreamScreen(
     ScreenScaffold(
         title = title,
         onBack = onBack,
-        background = R.drawable.bg_dashboard,
         actions = { ConnectionPill(state.connection) },
     ) { padding ->
         LazyColumn(
@@ -512,7 +509,7 @@ fun LiveStreamScreen(
                     "Up Next (${state.upNext.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = OnScrim,
+                    color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -520,12 +517,12 @@ fun LiveStreamScreen(
             if (state.upNext.isEmpty()) {
                 item {
                     Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Queue is empty", style = MaterialTheme.typography.bodyMedium, color = OnScrim)
+                        Text("Queue is empty", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
                         Text(
                             if (isMusic) "Random music will play when queue is empty"
                             else "Random video will play when queue is empty",
                             style = MaterialTheme.typography.bodySmall,
-                            color = OnScrimDim,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -573,7 +570,7 @@ private fun ConnectionPill(connection: StreamConnection) {
     Text(
         "$dot $label",
         style = MaterialTheme.typography.labelSmall,
-        color = OnScrimDim,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(end = 12.dp),
     )
 }

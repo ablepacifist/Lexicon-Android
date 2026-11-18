@@ -72,7 +72,6 @@ import com.alexdyakin.lexicon.lexi.LexiSettings
 import com.alexdyakin.lexicon.lexi.LexiSettingsStore
 import com.alexdyakin.lexicon.lexi.LexiState
 import com.alexdyakin.lexicon.lexi.LexiTurn
-import com.alexdyakin.lexicon.ui.components.OnScrimDim
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import com.alexdyakin.lexicon.ui.components.SectionHeader
 import java.text.DateFormat
@@ -110,7 +109,7 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
         }
     }
 
-    ScreenScaffold("Lexi", onBack, R.drawable.bg_dashboard) { padding ->
+    ScreenScaffold("Lexi", onBack) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(
                 start = 16.dp,
@@ -146,6 +145,8 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
                 items(turns, key = { it.atMillis }) { TurnCard(it) }
             }
 
+            item { CommandsCard() }
+
             item { SectionHeader("Settings") }
             item {
                 TokenCard(
@@ -162,7 +163,7 @@ fun LexiScreen(onBack: () -> Unit, viewModel: LexiViewModel = hiltViewModel()) {
                     "Audio never leaves this phone. The wake word and speech recognition run on the " +
                         "device; only the words of your question are sent to the brain.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = OnScrimDim,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -278,7 +279,7 @@ private fun Orb(state: LexiState) {
         LexiState.Capturing -> Color(0xFF7FB069)
         is LexiState.Thinking, is LexiState.Speaking -> Color(0xFF8AB4F8)
         is LexiState.Failed -> MaterialTheme.colorScheme.error
-        LexiState.Off, LexiState.PausedForCall -> OnScrimDim.copy(alpha = 0.4f)
+        LexiState.Off, LexiState.PausedForCall -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         else -> primary
     }
     val color by animateColorAsState(target, label = "orbColor")
@@ -535,6 +536,45 @@ private fun BackgroundCard() {
                 onClick = { launcher.launch(batteryExemptionIntent(context)) },
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Allow") }
+        }
+    }
+}
+
+/**
+ * The commands Lexi answers by itself. Worth listing, because they are the ones that keep
+ * working when the brain is off — and nothing else on screen would tell you that.
+ */
+@Composable
+private fun CommandsCard() {
+    Card(colors = panelColors()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Works without the brain", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Music comes from your Lexicon library and is handled on the phone, so these work " +
+                    "even when alison is off:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            for (example in listOf(
+                "“Play Dragon Rider”",
+                "“Shuffle all my music”",
+                "“Play the playlist Bane on shuffle”",
+                "“Join the live stream”  — skip then votes with the room",
+                "“Skip”  ·  “Stop”",
+            )) {
+                Text(
+                    example,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Text(
+                "Anything else goes to Obrenna, which needs alison awake.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }

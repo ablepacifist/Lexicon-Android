@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,8 +36,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import com.alexdyakin.lexicon.ui.components.OnScrim
 import com.alexdyakin.lexicon.R
+import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import kotlinx.coroutines.awaitCancellation
+import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
 import com.alexdyakin.lexicon.ui.notifications.NotificationsViewModel
 
 /**
@@ -89,6 +92,18 @@ fun HomeScreen(
     val username = displayName
     val notificationState by notificationsViewModel.state.collectAsState()
 
+    // The notification stream is open only while this screen is in front of the user; Web Push
+    // covers the backgrounded case.
+    LaunchedWhileResumed {
+        try {
+            notificationsViewModel.startStream()
+            awaitCancellation()
+        } finally {
+            notificationsViewModel.stopStream()
+        }
+    }
+
+
     val destinations = remember {
         listOf(
             Destination("lexicon", "Lexicon", "Audiobooks, music, video", R.drawable.logo_runed),
@@ -101,47 +116,18 @@ fun HomeScreen(
         )
     }
 
+    // Also a hand-copy of ScreenScaffold's body, forked only because this screen has no back
+    // button — which the shared scaffold has always supported via `onBack = null`.
     Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.bg_lexicon_room),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.88f))
-                    )
-                )
-        )
-
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            "Lexicon",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.primary,
-                    ),
-                    actions = {
-                        BadgedBox(badge = { UnreadBadge(notificationState.unreadCount) }) {
-                            TextButton(onClick = { onOpen("notifications") }) { Text("Alerts") }
-                        }
-                        TextButton(onClick = { onOpen("profile") }) { Text("Profile") }
-                        TextButton(onClick = onLogout) { Text("Sign out") }
-                    },
-                )
+        ScreenScaffold(
+            title = "Lexicon",
+            onBack = null,
+            actions = {
+                BadgedBox(badge = { UnreadBadge(notificationState.unreadCount) }) {
+                    TextButton(onClick = { onOpen("notifications") }) { Text("Alerts") }
+                }
+                TextButton(onClick = { onOpen("profile") }) { Text("Profile") }
+                TextButton(onClick = onLogout) { Text("Sign out") }
             },
         ) { padding ->
             LazyVerticalGrid(
@@ -159,7 +145,7 @@ fun HomeScreen(
                     Text(
                         "Welcome back, $username",
                         style = MaterialTheme.typography.titleMedium,
-                        color = OnScrim,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }
@@ -173,20 +159,13 @@ fun HomeScreen(
 
 @Composable
 private fun DestinationTile(destination: Destination, onClick: () -> Unit) {
-    // Each tile drifts on its own slow cycle so the grid never looks static
-    val transition = rememberInfiniteTransition(label = destination.key)
-    val float by transition.animateFloat(
-        initialValue = 0.97f,
-        targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = 2600 + destination.key.length * 260,
-                easing = FastOutSlowInEasing,
-            ),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "float",
-    )
+    // Each tile used to drift on its own `rememberInfiniteTransition` — seven of them, on the
+    // app's start destination, each asking for a frame every vsync. The grid never reached an
+    // idle state, so the Choreographer ran continuously for the whole time Home was open.
+    //
+    // The drift is gone. It is also what the system "remove animations" accessibility setting
+    // asks for, which the old version ignored.
+    val float = 1f
 
     var pressed by remember { mutableStateOf(false) }
     val press by animateFloatAsState(

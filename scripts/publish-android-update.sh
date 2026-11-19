@@ -25,11 +25,14 @@ Options:
   --target-os <linux|windows> Remote host OS (default: windows)
   --release-dir <path>        Remote APK directory (windows default: full-back-end-server/releases)
   --env-path <path>           Remote .env path (windows default: full-back-end-server/.env)
-  --restart-cmd <command>     Remote restart command after publish
   --dry-run                   Print actions without uploading/changing remote files
 
 Environment alternatives:
-  DEPLOY_HOST, DEPLOY_USER, DEPLOY_PORT, DEPLOY_TARGET_OS, DEPLOY_RELEASE_DIR, DEPLOY_ENV_PATH, DEPLOY_RESTART_CMD
+  DEPLOY_HOST, DEPLOY_USER, DEPLOY_PORT, DEPLOY_TARGET_OS, DEPLOY_RELEASE_DIR, DEPLOY_ENV_PATH
+
+Note: this script never restarts the remote stack. The server re-reads the app-update keys
+from the shared .env on every request (see AppUpdateSettings), so a publish takes effect as
+soon as the file is written. DEPLOY_RESTART_CMD is accepted but ignored, loudly.
 EOF
 }
 
@@ -49,7 +52,7 @@ PORT="${DEPLOY_PORT:-22}"
 TARGET_OS="${DEPLOY_TARGET_OS:-windows}"
 REMOTE_RELEASE_DIR="${DEPLOY_RELEASE_DIR:-full-back-end-server/releases}"
 REMOTE_ENV_PATH="${DEPLOY_ENV_PATH:-full-back-end-server/.env}"
-RESTART_CMD="${DEPLOY_RESTART_CMD:-}"
+IGNORED_RESTART_CMD="${DEPLOY_RESTART_CMD:-}"
 APK_ENV_PATH=""
 DRY_RUN="false"
 
@@ -71,7 +74,7 @@ while [[ $# -gt 0 ]]; do
     --target-os) TARGET_OS="$2"; shift 2 ;;
     --release-dir) REMOTE_RELEASE_DIR="$2"; shift 2 ;;
     --env-path) REMOTE_ENV_PATH="$2"; shift 2 ;;
-    --restart-cmd) RESTART_CMD="$2"; shift 2 ;;
+    --restart-cmd) IGNORED_RESTART_CMD="$2"; shift 2 ;;
     --dry-run) DRY_RUN="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
@@ -304,6 +307,39 @@ Set-EnvValue $envPath 'APP_UPDATE_SHA256'          $Sha256
 Set-EnvValue $envPath 'APP_UPDATE_PUBLIC_METADATA' $PublicMetadata
 Set-EnvValue $envPath 'APP_UPDATE_PUBLIC_DOWNLOAD' $PublicDownload
 
+# Prove the publish took effect instead of assuming it.
+#
+# AppUpdateSettings re-reads these keys from the .env on every request, so the new version
+# must be served the instant the file is written, with no restart. If it is not, the publish
+# is a silent no-op — which is the failure this check exists to catch, and the reason the
+# restart step could be dropped at all.
+#
+# Checked on loopback, not through the public hostname: the tunnel is a separate moving part,
+# and a tunnel outage must not turn a correct publish into a red build.
+$lexiconPort = 36568
+foreach ($line in [System.IO.File]::ReadAllLines($envPath, [System.Text.Encoding]::UTF8)) {
+  if ($line -match '^\s*LEXICON_PORT\s*=\s*(\d+)') { $lexiconPort = [int]$matches[1] }
+}
+
+$served = $null
+for ($i = 1; $i -le 10; $i++) {
+  try {
+    $served = Invoke-RestMethod -Uri "http://127.0.0.1:$lexiconPort/api/app/version" -TimeoutSec 10
+    break
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+}
+
+if ($null -eq $served) {
+  # Soft: the metadata is written and correct; only the confirmation is missing.
+  Write-Output "WARNING: could not reach the server on port $lexiconPort to verify. The .env was written; check the server separately."
+} elseif ([string]$served.versionCode -ne [string]$VersionCode) {
+  throw "Published versionCode $VersionCode but the server is still serving $($served.versionCode). The .env write did not take effect - do not assume this release is live."
+} else {
+  Write-Output "Verified live: the server serves versionCode $($served.versionCode) ($($served.versionName)), no restart needed."
+}
+
 Write-Output "Remote publish complete: $versionedApk"
 PSLOGIC
 )"
@@ -331,9 +367,21 @@ PSLOGIC
     "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $ps_b64"
 fi
 
-if [[ -n "$RESTART_CMD" ]]; then
-  echo "Running remote restart command"
-  ssh -p "$PORT" "$USER@$HOST" "$RESTART_CMD"
+# Deliberately no restart.
+#
+# This step used to run DEPLOY_RESTART_CMD over SSH. That command restarts the whole stack,
+# including the Cloudflare tunnel service — the same tunnel this SSH session is carried over
+# — so the restart tore down its own connection and the job died with "Connection closed by
+# remote host" / exit 255, every time, after the publish had already succeeded. A concurrent
+# watchdog restart could cut it at any earlier point too, which is why the failure moved
+# around between runs.
+#
+# It is also unnecessary: AppUpdateSettings re-reads the app-update keys from the shared .env
+# per request, so the metadata written above is live the moment it is written. The verify
+# step below proves that rather than assuming it.
+if [[ -n "$IGNORED_RESTART_CMD" ]]; then
+  echo "WARNING: DEPLOY_RESTART_CMD is set but ignored — publishing no longer needs a restart."
+  echo "WARNING: Delete that secret; restarting the stack from here kills this SSH session."
 fi
 
 echo "Publish complete."

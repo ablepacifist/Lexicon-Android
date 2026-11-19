@@ -335,7 +335,11 @@ jobs:
           DEPLOY_TARGET_OS: ${{ secrets.DEPLOY_TARGET_OS }}
           DEPLOY_RELEASE_DIR: ${{ secrets.DEPLOY_RELEASE_DIR }}
           DEPLOY_ENV_PATH: ${{ secrets.DEPLOY_ENV_PATH }}
-          DEPLOY_RESTART_CMD: ${{ secrets.DEPLOY_RESTART_CMD }}
+          # DEPLOY_RESTART_CMD is deliberately not passed. Restarting the stack from here
+          # restarts the Cloudflare tunnel this SSH session runs over, which killed the job
+          # with exit 255 after the publish had already succeeded. The server re-reads the
+          # app-update keys from .env per request, so no restart is needed; the publish step
+          # verifies the new version is being served before it reports success.
           APP_UPDATE_DOWNLOAD_URL: ${{ secrets.APP_UPDATE_DOWNLOAD_URL }}
           APP_UPDATE_PUBLIC_METADATA: ${{ secrets.APP_UPDATE_PUBLIC_METADATA }}
           APP_UPDATE_PUBLIC_DOWNLOAD: ${{ secrets.APP_UPDATE_PUBLIC_DOWNLOAD }}

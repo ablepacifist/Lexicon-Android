@@ -303,7 +303,10 @@ private fun HoldfastDetail(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    TextButton(onClick = onDelete, enabled = !state.saving) { Text("Delete") }
+                    // Admin only; Alchemy refuses the call anyway for anyone without HOLDFAST_DELETE.
+                    if (state.canDelete) {
+                        TextButton(onClick = onDelete, enabled = !state.saving) { Text("Delete") }
+                    }
                 }
                 HoldfastBanner(state.notice, MaterialTheme.colorScheme.primary)
                 HoldfastBanner(state.error, MaterialTheme.colorScheme.error)
@@ -333,7 +336,9 @@ private fun HoldfastDetail(
             HoldfastTab.STATUS -> item {
                 StatusTab(selected = selected, saving = state.saving, onReplant = onReplant)
             }
-            HoldfastTab.TIME -> item { TimeTab(advanceDays, onAdvanceDaysChange, state.lastActionEvents, state.saving, onAdvance) }
+            HoldfastTab.TIME -> item {
+                TimeTab(advanceDays, onAdvanceDaysChange, state.lastActionEvents, state.saving, onAdvance, state.canAdvanceTime, selected.calendar)
+            }
             // Emits one list item per building card instead of ~35 in a single item.
             HoldfastTab.BUILD -> buildTab(selected, state.saving, onBuild)
             HoldfastTab.TREASURY -> item { TreasuryTab(selected, depositAmount, onDepositAmountChange, withdrawForm, onWithdrawFormChange, state.saving, onDeposit, onWithdraw, onToggleFoodMarket) }

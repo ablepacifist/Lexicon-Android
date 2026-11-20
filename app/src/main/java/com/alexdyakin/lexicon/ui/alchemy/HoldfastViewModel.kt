@@ -12,6 +12,9 @@ import com.alexdyakin.lexicon.data.DepositHoldfastRequest
 import com.alexdyakin.lexicon.data.Holdfast
 import com.alexdyakin.lexicon.data.HoldfastEvent
 import com.alexdyakin.lexicon.data.HoldfastStatus
+import com.alexdyakin.lexicon.data.HoldfastEventEntry
+import com.alexdyakin.lexicon.data.LexiconIdentity
+import com.alexdyakin.lexicon.data.Permissions
 import com.alexdyakin.lexicon.data.ReplantHoldfastRequest
 import com.alexdyakin.lexicon.data.ToggleFoodMarketRequest
 import com.alexdyakin.lexicon.data.WithdrawHoldfastRequest
@@ -61,7 +64,7 @@ data class HoldfastUiState(
     val activeTab: HoldfastTab = HoldfastTab.STATUS,
     val events: List<HoldfastEvent> = emptyList(),
     val logLoading: Boolean = false,
-    val lastActionEvents: List<String> = emptyList(),
+    val lastActionEvents: List<HoldfastEventEntry> = emptyList(),
     val notice: String? = null,
     val error: String? = null,
     /**
@@ -69,21 +72,35 @@ data class HoldfastUiState(
      * composable watches this rather than the ViewModel owning text-field state.
      */
     val formResetToken: Int = 0,
-)
+    /** Permission names from Lexicon. Only decide what is shown; Alchemy enforces them. */
+    val permissions: List<String> = emptyList(),
+) {
+    val canAdvanceTime: Boolean get() = Permissions.HOLDFAST_ADVANCE_TIME in permissions
+    val canDelete: Boolean get() = Permissions.HOLDFAST_DELETE in permissions
+}
 
-/** Holdfast endpoints are permitAll on alchemyServer, so 401/403 should be unreachable. */
+/** Only advance and delete are checked by alchemyServer; anything else answering 401/403 is unexpected. */
 private const val HOLDFAST_REJECTED = "The holdfast server rejected that request."
+private const val SIGN_IN_AGAIN = "Your session has expired. Please sign in again."
 
 @HiltViewModel
 class HoldfastViewModel @Inject constructor(
     private val api: AlchemyApi,
     private val json: Json,
+    private val identity: LexiconIdentity,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HoldfastUiState())
     val state = _state.asStateFlow()
 
     init {
         refreshHoldfasts()
+        loadPermissions()
+    }
+
+    /** Asks Lexicon what this player may do. On failure nothing admin-only is shown. */
+    private fun loadPermissions() = viewModelScope.launch {
+        val permissions = runCatching { identity.permissions() }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(permissions = permissions)
     }
 
     fun closeSelection() {
@@ -151,14 +168,15 @@ class HoldfastViewModel @Inject constructor(
     fun advance(days: Int) = viewModelScope.launch {
         val groupName = _state.value.selectedGroupName ?: return@launch
         _state.value = _state.value.copy(saving = true, notice = null, error = null, lastActionEvents = emptyList())
-        when (val result = holdfastCall { api.advanceHoldfast(AdvanceHoldfastRequest(groupName, days)) }) {
+        val token = mintToken() ?: return@launch
+        when (val result = holdfastCall { api.advanceHoldfast(AdvanceHoldfastRequest(groupName, days), token) }) {
             is ApiResult.Success -> {
                 // Advancing invalidates the persisted event log; drop it so the Log tab
                 // cannot show a pre-advance trail, and refetch if it is already open.
                 val logOpen = _state.value.activeTab == HoldfastTab.LOG
                 _state.value = _state.value.copy(
                     saving = false,
-                    lastActionEvents = result.data.events,
+                    lastActionEvents = result.data.eventEntries.ifEmpty { result.data.events.map { HoldfastEventEntry(it) } },
                     notice = "Time advanced.",
                     events = emptyList(),
                 )
@@ -273,7 +291,8 @@ class HoldfastViewModel @Inject constructor(
     fun deleteSelected() = viewModelScope.launch {
         val groupName = _state.value.selectedGroupName ?: return@launch
         _state.value = _state.value.copy(saving = true, notice = null, error = null)
-        when (val result = holdfastCall { api.deleteHoldfast(groupName) }) {
+        val token = mintToken() ?: return@launch
+        when (val result = holdfastCall { api.deleteHoldfast(groupName, token) }) {
             is ApiResult.Success -> {
                 _state.value = _state.value.copy(
                     saving = false,
@@ -300,6 +319,17 @@ class HoldfastViewModel @Inject constructor(
 
     private fun fail(message: String) {
         _state.value = _state.value.copy(saving = false, error = message)
+    }
+
+    /** A fresh single-use SSO token for an admin-only call, or null (with the error shown). */
+    private suspend fun mintToken(): String? = try {
+        identity.mintSsoToken()
+    } catch (e: IOException) {
+        fail("Can't reach Lexicon to confirm who you are. Check your connection.")
+        null
+    } catch (e: Exception) {
+        fail(SIGN_IN_AGAIN)
+        null
     }
 
     /** Every mutation refreshes the same way: real status first, then the list. */
@@ -361,7 +391,9 @@ class HoldfastViewModel @Inject constructor(
         ApiResult.Success(block())
     } catch (e: HttpException) {
         when (e.code()) {
-            401, 403 -> ApiResult.Unauthorized
+            // Advance and delete answer 401/403 with a reason ("Only an admin can advance time.").
+            401 -> ApiResult.Failure(serverMessage(e) ?: SIGN_IN_AGAIN, 401)
+            403 -> serverMessage(e)?.let { ApiResult.Failure(it, 403) } ?: ApiResult.Unauthorized
             else -> ApiResult.Failure(serverMessage(e) ?: "Server error (HTTP ${e.code()}).", e.code())
         }
     } catch (e: IOException) {

@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.data.di
 
+import com.alexdyakin.lexicon.data.AuthApiLexiconIdentity
+import com.alexdyakin.lexicon.data.LexiconIdentity
 import com.alexdyakin.lexicon.data.bridge.BridgeCredentials
 import com.alexdyakin.lexicon.data.bridge.LexiconBridgeCredentials
 import dagger.Binds
@@ -18,4 +20,9 @@ abstract class BridgeModule {
     @Binds
     @Singleton
     abstract fun bridgeCredentials(impl: LexiconBridgeCredentials): BridgeCredentials
+
+    /** Holdfast asks Lexicon what the player may do and proves who they are to Alchemy. */
+    @Binds
+    @Singleton
+    abstract fun lexiconIdentity(impl: AuthApiLexiconIdentity): LexiconIdentity
 }

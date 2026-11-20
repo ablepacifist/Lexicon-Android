@@ -10,6 +10,8 @@ import com.alexdyakin.lexicon.data.HoldfastEvent
 import com.alexdyakin.lexicon.data.HoldfastMutationResponse
 import com.alexdyakin.lexicon.data.HoldfastOperationResponse
 import com.alexdyakin.lexicon.data.HoldfastStatus
+import com.alexdyakin.lexicon.data.LexiconIdentity
+import com.alexdyakin.lexicon.data.Permissions
 import com.alexdyakin.lexicon.data.WithdrawHoldfastRequest
 import com.alexdyakin.lexicon.data.api.AlchemyApi
 import kotlinx.coroutines.Dispatchers
@@ -40,13 +42,35 @@ import java.util.Locale
 class HoldfastViewModelTest {
 
     private lateinit var api: FakeHoldfastApi
+    private lateinit var identity: FakeIdentity
 
-    private fun viewModel() = HoldfastViewModel(api.proxy, Json { ignoreUnknownKeys = true })
+    private fun viewModel() = HoldfastViewModel(api.proxy, Json { ignoreUnknownKeys = true }, identity)
+
+    /** Stands in for Lexicon: the permissions it reports and the SSO tokens it mints. */
+    private class FakeIdentity(
+        var permissions: List<String> = listOf(Permissions.HOLDFAST_ADVANCE_TIME, Permissions.HOLDFAST_DELETE),
+    ) : LexiconIdentity {
+        var permissionsFail: Throwable? = null
+        var mintFail: Throwable? = null
+        var minted = 0
+
+        override suspend fun permissions(): List<String> {
+            permissionsFail?.let { throw it }
+            return permissions
+        }
+
+        override suspend fun mintSsoToken(): String {
+            mintFail?.let { throw it }
+            minted++
+            return "sso-$minted"
+        }
+    }
 
     @Before
     fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
         api = FakeHoldfastApi()
+        identity = FakeIdentity()
     }
 
     @After
@@ -187,6 +211,72 @@ class HoldfastViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Insufficient resources", viewModel.state.value.error)
+    }
+
+    @Test
+    fun `an admin sees the controls and each admin call carries a fresh sso token`() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.canAdvanceTime)
+        assertTrue(viewModel.state.value.canDelete)
+        viewModel.selectHoldfast(viewModel.state.value.holdfasts.first())
+        advanceUntilIdle()
+
+        viewModel.advance(2)
+        advanceUntilIdle()
+        viewModel.deleteSelected()
+        advanceUntilIdle()
+
+        assertEquals(listOf("sso-1", "sso-2"), api.ssoTokens)
+    }
+
+    @Test
+    fun `a player without permissions gets no admin controls`() = runTest {
+        identity.permissions = emptyList()
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.canAdvanceTime)
+        assertFalse(viewModel.state.value.canDelete)
+    }
+
+    @Test
+    fun `if Lexicon cannot say, nothing admin-only is shown`() = runTest {
+        identity.permissionsFail = IOException("offline")
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.canAdvanceTime)
+        assertEquals(1, viewModel.state.value.holdfasts.size)
+    }
+
+    @Test
+    fun `the server's refusal reason is shown`() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        viewModel.selectHoldfast(viewModel.state.value.holdfasts.first())
+        advanceUntilIdle()
+
+        api.failWith["advanceHoldfast"] = httpError(403, """{"status":403,"success":false,"message":"Only an admin can advance time."}""")
+        viewModel.advance(3)
+        advanceUntilIdle()
+
+        assertEquals("Only an admin can advance time.", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.saving)
+    }
+
+    @Test
+    fun `no sso token means no call to alchemy`() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        viewModel.selectHoldfast(viewModel.state.value.holdfasts.first())
+        advanceUntilIdle()
+
+        identity.mintFail = RuntimeException("401")
+        viewModel.advance(3)
+        advanceUntilIdle()
+
+        assertEquals("Your session has expired. Please sign in again.", viewModel.state.value.error)
+        assertFalse(api.calls.contains("POST /api/holdfast/advance"))
+        assertFalse(viewModel.state.value.saving)
     }
 
     @Test
@@ -358,6 +448,9 @@ class HoldfastViewModelTest {
         /** Method name → throwable, so a test can make one endpoint fail. */
         val failWith = mutableMapOf<String, Throwable>()
 
+        /** The X-Lexicon-Sso header sent with each admin-only call. */
+        val ssoTokens = mutableListOf<String>()
+
         private var holdfast = sampleHoldfast(daysElapsed = 1)
 
         val proxy: AlchemyApi = Proxy.newProxyInstance(
@@ -385,6 +478,7 @@ class HoldfastViewModelTest {
                 // pretend advance hands back a full status.
                 "advanceHoldfast" -> {
                     val body = args?.get(0) as AdvanceHoldfastRequest
+                    ssoTokens += args[1] as String
                     calls += "POST /api/holdfast/advance"
                     holdfast = holdfast.copy(daysElapsed = holdfast.daysElapsed + body.days, gold = holdfast.gold + 50)
                     HoldfastAdvanceResponse(
@@ -433,6 +527,7 @@ class HoldfastViewModelTest {
                 }
                 "deleteHoldfast" -> {
                     val groupName = args?.get(0) as String
+                    ssoTokens += args[1] as String
                     calls += "DELETE /api/holdfast/$groupName"
                     HoldfastOperationResponse(success = true, message = "Holdfast deleted")
                 }

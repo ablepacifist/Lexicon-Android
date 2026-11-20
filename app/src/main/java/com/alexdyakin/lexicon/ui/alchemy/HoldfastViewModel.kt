@@ -10,6 +10,7 @@ import com.alexdyakin.lexicon.data.BuildHoldfastRequest
 import com.alexdyakin.lexicon.data.CreateHoldfastRequest
 import com.alexdyakin.lexicon.data.DepositHoldfastRequest
 import com.alexdyakin.lexicon.data.Holdfast
+import com.alexdyakin.lexicon.data.HoldfastAsset
 import com.alexdyakin.lexicon.data.HoldfastEvent
 import com.alexdyakin.lexicon.data.HoldfastStatus
 import com.alexdyakin.lexicon.data.HoldfastEventEntry
@@ -74,6 +75,8 @@ data class HoldfastUiState(
     val formResetToken: Int = 0,
     /** Permission names from Lexicon. Only decide what is shown; Alchemy enforces them. */
     val permissions: List<String> = emptyList(),
+    /** Art for each key ("building.granary", "resource.wood", …), from alchemyServer's asset manifest. */
+    val assets: Map<String, HoldfastAsset> = emptyMap(),
 ) {
     val canAdvanceTime: Boolean get() = Permissions.HOLDFAST_ADVANCE_TIME in permissions
     val canDelete: Boolean get() = Permissions.HOLDFAST_DELETE in permissions
@@ -95,6 +98,13 @@ class HoldfastViewModel @Inject constructor(
     init {
         refreshHoldfasts()
         loadPermissions()
+        loadAssets()
+    }
+
+    /** Fetched once per screen. On failure the screens simply show no icons. */
+    private fun loadAssets() = viewModelScope.launch {
+        val assets = runCatching { api.holdfastAssets().assets }.getOrDefault(emptyMap())
+        _state.value = _state.value.copy(assets = assets)
     }
 
     /** Asks Lexicon what this player may do. On failure nothing admin-only is shown. */

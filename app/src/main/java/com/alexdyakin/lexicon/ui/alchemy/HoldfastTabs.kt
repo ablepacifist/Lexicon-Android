@@ -102,7 +102,12 @@ internal fun StatusTab(
                 val food = selected.food
                 StatusChips(
                     selected.resources.map { r ->
-                        ChipSpec(r.label, if (r.key == "gold") formatGold(r.amount) else trimNumber(r.amount), levelOf(r.level))
+                        ChipSpec(
+                            r.label,
+                            if (r.key == "gold") formatGold(r.amount) else trimNumber(r.amount),
+                            levelOf(r.level),
+                            iconKey = resourceAssetKey(r.key),
+                        )
                     }
                 )
                 Text(
@@ -134,7 +139,12 @@ internal fun StatusTab(
                 if (selected.builtBuildings.isEmpty()) {
                     Text("No buildings yet.")
                 } else {
-                    selected.builtBuildings.forEach { b -> Text("${b.name} ×${b.count}") }
+                    selected.builtBuildings.forEach { b ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            HoldfastIcon(buildingAssetKey(b.type), HoldfastIconSize.Row)
+                            Text("${b.name} ×${b.count}")
+                        }
+                    }
                 }
             }
         }
@@ -166,9 +176,10 @@ internal fun StatusTab(
                     fallow.forEach { field ->
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            HoldfastIcon(buildingAssetKey(field.type), HoldfastIconSize.Row)
                             Text(
                                 "${field.label}: ${field.fallow} need replanting",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -192,11 +203,14 @@ internal fun StatusTab(
 @Composable
 private fun CropRows(crop: HoldfastCrop, selected: HoldfastStatus) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            "${crop.label} (${crop.planted})",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            HoldfastIcon(buildingAssetKey(crop.type), HoldfastIconSize.Row)
+            Text(
+                "${crop.label} (${crop.planted})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         if (!crop.showProgress) {
             // Vineyards: no meaningful harvest, so state the production rate instead.
             val item = selected.buildingMenu.firstOrNull { it.type == crop.type }
@@ -366,7 +380,12 @@ private fun BuildCard(
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HoldfastIcon(buildingAssetKey(item.type), HoldfastIconSize.Card)
                 Text(item.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 Text(
                     if (item.max != null) "${item.current} / ${item.max}" else "${item.current}",
@@ -404,6 +423,7 @@ private fun BuildCard(
                             label = r.resource.replaceFirstChar { it.uppercase() },
                             value = "${r.have}/${r.needed}",
                             level = if (r.enough) HoldfastLevel.OK else HoldfastLevel.DANGER,
+                            iconKey = resourceAssetKey(r.resource),
                         )
                     }
                 )
@@ -689,7 +709,7 @@ internal fun formatDaysOfFood(days: Int): String = if (days >= 999) "plenty" els
 internal fun formatSpoilIn(days: Int): String = if (days < 0) "—" else "$days day(s)"
 
 /** A single labelled value with a severity colour. */
-internal data class ChipSpec(val label: String, val value: String, val level: HoldfastLevel)
+internal data class ChipSpec(val label: String, val value: String, val level: HoldfastLevel, val iconKey: String? = null)
 
 internal fun levelColor(level: HoldfastLevel): Color = when (level) {
     HoldfastLevel.OK -> HoldfastOk
@@ -721,6 +741,7 @@ internal fun StatusChips(chips: List<ChipSpec>) {
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    chip.iconKey?.let { HoldfastIcon(it, HoldfastIconSize.Chip) }
                     Text(
                         chip.label,
                         style = MaterialTheme.typography.labelSmall,

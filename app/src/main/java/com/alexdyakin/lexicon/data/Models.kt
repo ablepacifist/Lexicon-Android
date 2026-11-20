@@ -254,6 +254,12 @@ data class BrewPotionResponse(val message: String = "")
 @Serializable data class HoldfastEvent(val id: Long = 0, val day: Int = 0, val message: String = "", val tone: String = "normal")
 @Serializable data class HoldfastEventEntry(val message: String = "", val tone: String = "normal")
 
+// ── GET /api/holdfast/assets/manifest: the art for buildings, resources, castles, crops and tabs. ──
+/** [url] is a server path, set only when the image file exists; [emoji] is shown otherwise. */
+@Serializable data class HoldfastAsset(val label: String = "", val emoji: String = "", val url: String? = null)
+/** Keys look like "building.granary", "resource.wood", "castle.stone_fort", "tab.build". */
+@Serializable data class HoldfastAssetManifest(val version: Int = 0, val assets: Map<String, HoldfastAsset> = emptyMap())
+
 // ── Ready-to-show parts of GET /api/holdfast/{groupName}. Levels are "ok", "warn" or "danger". ──
 @Serializable data class HoldfastCalendar(val day: Int = 0, val week: Int = 1, val weeksElapsed: Int = 0, val dayOfWeek: Int = 0)
 @Serializable data class HoldfastFood(

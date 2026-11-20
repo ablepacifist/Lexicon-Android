@@ -46,6 +46,13 @@ object ApiUrls {
      */
     fun itemSpriteUrl(sprite: String): String = POKEMON + "api/pokemon/item-sprites/" + sprite
 
+    /**
+     * Full URL for a Holdfast asset. The manifest gives server paths such as
+     * "/api/holdfast/assets/buildings/granary.png?v=…"; an absolute URL is used as is.
+     */
+    fun holdfastAssetUrl(path: String): String =
+        if (path.startsWith("http://") || path.startsWith("https://")) path else ALCHEMY + path.trimStart('/')
+
     /** Stream URL for a media file, served by the Lexicon backend. */
     fun streamUrl(mediaId: Int): String = LEXICON + "api/media/stream/$mediaId"
 }

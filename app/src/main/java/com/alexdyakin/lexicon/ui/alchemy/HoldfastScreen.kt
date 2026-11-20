@@ -24,6 +24,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 // Operator extensions behind `by` delegation. Their names never appear in the source,
@@ -123,6 +124,7 @@ fun HoldfastScreen(onBack: () -> Unit, viewModel: HoldfastViewModel = hiltViewMo
         )
     }
 
+    CompositionLocalProvider(LocalHoldfastAssets provides state.assets) {
     ScreenScaffold(
         when {
             state.selectedStatus != null -> state.selectedStatus!!.holdfast.holdfastName
@@ -178,6 +180,7 @@ fun HoldfastScreen(onBack: () -> Unit, viewModel: HoldfastViewModel = hiltViewMo
                 onLoadEvents = viewModel::loadEvents,
             )
         }
+    }
     }
 }
 
@@ -238,7 +241,10 @@ private fun HoldfastList(
             items(holdfasts, key = { it.groupName }) { holdfast ->
                 Card(Modifier.fillMaxWidth().animateItem()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(holdfast.holdfastName, style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            HoldfastIcon(castleAssetKey(holdfast.castleType), HoldfastIconSize.Card)
+                            Text(holdfast.holdfastName, style = MaterialTheme.typography.titleMedium)
+                        }
                         MetricGrid(
                             items = listOf(
                                 "Group" to holdfast.groupName,
@@ -294,7 +300,8 @@ private fun HoldfastDetail(
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    HoldfastIcon(castleAssetKey(holdfast.castleType), HoldfastIconSize.Header)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(holdfast.holdfastName, style = MaterialTheme.typography.headlineSmall)
                         Text(
@@ -318,6 +325,7 @@ private fun HoldfastDetail(
                     Tab(
                         selected = state.activeTab == tab,
                         onClick = { onTabSelected(tab) },
+                        icon = { HoldfastIcon(tabAssetKey(tab), HoldfastIconSize.Tab) },
                         text = {
                             Text(
                                 tabTitles[tab] ?: tab.name,

@@ -4,6 +4,8 @@ import com.alexdyakin.lexicon.data.AdvanceHoldfastRequest
 import com.alexdyakin.lexicon.data.CreateHoldfastRequest
 import com.alexdyakin.lexicon.data.DepositHoldfastRequest
 import com.alexdyakin.lexicon.data.Holdfast
+import com.alexdyakin.lexicon.data.HoldfastAsset
+import com.alexdyakin.lexicon.data.HoldfastAssetManifest
 import com.alexdyakin.lexicon.data.HoldfastAdvanceResponse
 import com.alexdyakin.lexicon.data.HoldfastBuildingMenuItem
 import com.alexdyakin.lexicon.data.HoldfastEvent
@@ -331,6 +333,27 @@ class HoldfastViewModelTest {
     }
 
     @Test
+    fun `the asset manifest is loaded once for the icons`() = runTest {
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        val assets = viewModel.state.value.assets
+        assertEquals("/api/holdfast/assets/buildings/granary.png?v=1", assets["building.granary"]?.url)
+        assertNull("no file means the emoji is shown", assets["resource.food"]?.url)
+    }
+
+    @Test
+    fun `a failed asset manifest leaves the screen working without icons`() = runTest {
+        api.failWith["holdfastAssets"] = httpError(500, "{}")
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.assets.isEmpty())
+        assertNull(viewModel.state.value.error)
+        assertEquals(1, viewModel.state.value.holdfasts.size)
+    }
+
+    @Test
     fun `withdraw refuses empty and non-numeric forms without calling the server`() = runTest {
         val viewModel = viewModel()
         advanceUntilIdle()
@@ -525,6 +548,15 @@ class HoldfastViewModelTest {
                     calls += "GET /api/holdfast/$groupName/events"
                     listOf(HoldfastEvent(id = 1, day = 1, message = "DAY 1 - patrols returned safely"))
                 }
+                // Not recorded in calls: it is fetched once at start-up, and the call
+                // lists other tests assert are about the holdfast actions.
+                "holdfastAssets" -> HoldfastAssetManifest(
+                    version = 1,
+                    assets = mapOf(
+                        "building.granary" to HoldfastAsset("Granary", "G", "/api/holdfast/assets/buildings/granary.png?v=1"),
+                        "resource.food" to HoldfastAsset("Food", "F", null),
+                    ),
+                )
                 "deleteHoldfast" -> {
                     val groupName = args?.get(0) as String
                     ssoTokens += args[1] as String

@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.ui.alchemy
 
+import com.alexdyakin.lexicon.data.ApiUrls
+import com.alexdyakin.lexicon.data.HoldfastAssetManifest
 import com.alexdyakin.lexicon.data.HoldfastCalendar
 import com.alexdyakin.lexicon.data.HoldfastEvent
 import com.alexdyakin.lexicon.data.HoldfastStatus
@@ -87,6 +89,32 @@ class HoldfastDisplayTest {
         assertEquals(HoldfastOk, toneColor("success"))
         assertNull(toneColor("normal"))
         assertEquals("success", json.decodeFromString(HoldfastEvent.serializer(), """{"id":1,"day":2,"message":"m","tone":"success"}""").tone)
+    }
+
+    @Test
+    fun `the asset manifest decodes and keys match the server's`() {
+        val manifest = json.decodeFromString(
+            HoldfastAssetManifest.serializer(),
+            """{"version": 1, "assets": {
+                 "building.granary": {"label": "Granary", "emoji": "G", "url": "/api/holdfast/assets/buildings/granary.png?v=7"},
+                 "resource.food": {"label": "Food", "emoji": "F"}}}""",
+        )
+        assertEquals("/api/holdfast/assets/buildings/granary.png?v=7", manifest.assets["building.granary"]?.url)
+        assertNull(manifest.assets["resource.food"]?.url)
+        assertEquals("F", manifest.assets["resource.food"]?.emoji)
+
+        assertEquals("building.wheat_field", buildingAssetKey("wheat_field"))
+        assertEquals("resource.wood", resourceAssetKey("Wood"))
+        assertEquals("castle.stone_fort", castleAssetKey("stone_fort"))
+        assertEquals("tab.treasury", tabAssetKey(HoldfastTab.TREASURY))
+    }
+
+    @Test
+    fun `asset paths become full alchemy urls`() {
+        val url = ApiUrls.holdfastAssetUrl("/api/holdfast/assets/crops/orchard.png?v=3")
+        assertEquals(ApiUrls.ALCHEMY + "api/holdfast/assets/crops/orchard.png?v=3", url)
+        assertFalse(url.contains("//api"))
+        assertEquals("https://cdn.example/x.png", ApiUrls.holdfastAssetUrl("https://cdn.example/x.png"))
     }
 
     @Test

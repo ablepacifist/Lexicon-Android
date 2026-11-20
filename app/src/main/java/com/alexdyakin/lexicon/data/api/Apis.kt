@@ -15,6 +15,7 @@ import com.alexdyakin.lexicon.data.BuildHoldfastRequest
 import com.alexdyakin.lexicon.data.DepositHoldfastRequest
 import com.alexdyakin.lexicon.data.ToggleFoodMarketRequest
 import com.alexdyakin.lexicon.data.HoldfastEvent
+import com.alexdyakin.lexicon.data.HoldfastAssetManifest
 import com.alexdyakin.lexicon.data.HoldfastOperationResponse
 import com.alexdyakin.lexicon.data.ReplantHoldfastRequest
 import com.alexdyakin.lexicon.data.WithdrawHoldfastRequest
@@ -381,6 +382,8 @@ interface AlchemyApi {
     @POST("api/holdfast/replant") suspend fun replantHoldfast(@Body body: ReplantHoldfastRequest): HoldfastMutationResponse
     @POST("api/holdfast/toggle-food-market") suspend fun toggleFoodMarket(@Body body: ToggleFoodMarketRequest): Holdfast
     @GET("api/holdfast/{groupName}/events") suspend fun holdfastEvents(@Path("groupName") groupName: String): List<HoldfastEvent>
+    /** Which image (or emoji) to show for each building, resource, castle, crop and tab. Public. */
+    @GET("api/holdfast/assets/manifest") suspend fun holdfastAssets(): HoldfastAssetManifest
     /** Admin only: Alchemy checks HOLDFAST_DELETE with the SSO token. */
     @DELETE("api/holdfast/{groupName}") suspend fun deleteHoldfast(
         @Path("groupName") groupName: String,

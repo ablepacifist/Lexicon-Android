@@ -33,6 +33,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Map
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.theme.Spacing
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +86,7 @@ class PokemonViewModel @Inject constructor(
 @Composable
 fun PokemonScreen(
     onBack: () -> Unit,
+    onOpenMap: () -> Unit,
     onOpenPokedex: () -> Unit,
     onOpenShop: () -> Unit,
     onOpenEggs: () -> Unit,
@@ -90,19 +96,36 @@ fun PokemonScreen(
     val state by viewModel.state.collectAsState()
 
     ScreenScaffold(title = "Pokémon", onBack = onBack, actions = { TextButton(onClick = onOpenPokedex) { Text("Dex") }; TextButton(onClick = onOpenEggs) { Text("Eggs") }; TextButton(onClick = onOpenShop) { Text("Shop") } }) { padding ->
-        when {
-            state.loading -> LoadingBox(padding)
-            state.error != null -> EmptyBox(padding, state.error!!)
-            state.collection.isEmpty() -> EmptyBox(padding, "No Pokémon caught yet.")
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 150.dp),
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                itemsIndexed(state.collection, key = { _, p -> p.id }) { index, pokemon ->
-                    PokemonCard(pokemon, index) { onOpenPokemon(pokemon.id) }
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // Outside the `when` on purpose. The map is where Pokemon come from, so it
+            // has to be reachable in every state — including the empty one a new player
+            // lands on, which used to show "No Pokemon caught yet" and no way at all to
+            // go and catch one.
+            LexButton(
+                "Open the map",
+                onClick = onOpenMap,
+                tone = LexTone.Primary,
+                icon = Icons.Filled.Map,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.gutter)
+                    .padding(top = Spacing.md),
+            )
+            when {
+                state.loading -> LoadingBox(PaddingValues(0.dp))
+                state.error != null -> EmptyBox(PaddingValues(0.dp), state.error!!)
+                state.collection.isEmpty() ->
+                    EmptyBox(PaddingValues(0.dp), "No Pokémon caught yet.")
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    itemsIndexed(state.collection, key = { _, p -> p.id }) { index, pokemon ->
+                        PokemonCard(pokemon, index) { onOpenPokemon(pokemon.id) }
+                    }
                 }
             }
         }

@@ -39,6 +39,13 @@ object ApiUrls {
     /** Sprite for a caught Pokemon, served by the Pokemon backend. */
     fun spriteUrl(spriteKey: String): String = POKEMON + "api/pokemon/sprites/" + spriteKey
 
+    /**
+     * Sprite for an inventory item (balls, berries, stones), served by the Pokemon
+     * backend from a different folder than species sprites — hence the second helper
+     * rather than a flag on the first.
+     */
+    fun itemSpriteUrl(sprite: String): String = POKEMON + "api/pokemon/item-sprites/" + sprite
+
     /** Stream URL for a media file, served by the Lexicon backend. */
     fun streamUrl(mediaId: Int): String = LEXICON + "api/media/stream/$mediaId"
 }

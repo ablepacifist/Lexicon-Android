@@ -217,6 +217,8 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     debugImplementation(libs.androidx.ui.tooling)
 
+    implementation(libs.osmdroid.android)
+
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
 

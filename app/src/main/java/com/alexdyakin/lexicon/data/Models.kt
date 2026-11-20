@@ -22,6 +22,9 @@ data class LoginResponse(
     val email: String = "",
     val level: Int = 0,
     val mobileToken: String? = null,
+    /** Decided by Lexicon; the servers enforce it, the app only shows or hides controls. */
+    val role: String = "USER",
+    val permissions: List<String> = emptyList(),
 )
 
 @Serializable
@@ -48,6 +51,8 @@ data class CurrentUser(
     val displayName: String = "",
     val email: String = "",
     val level: Int = 0,
+    val role: String = "USER",
+    val permissions: List<String> = emptyList(),
 )
 
 @Serializable
@@ -233,8 +238,73 @@ data class BrewPotionResponse(val message: String = "")
     val productionItem: String? = null,
     val productionAmount: Int? = null,
     val productionDays: Int? = null,
+    // Worked out by alchemyServer; the app only shows them.
+    val resourceRequirements: List<HoldfastResourceRequirement> = emptyList(),
+    val canAffordResources: Boolean = true,
+    val canAffordGold: Boolean = true,
+    val canBuild: Boolean = false,
 )
-@Serializable data class HoldfastEvent(val id: Long = 0, val day: Int = 0, val message: String = "")
+@Serializable data class HoldfastResourceRequirement(
+    val resource: String = "",
+    val needed: Int = 0,
+    val have: Int = 0,
+    val enough: Boolean = false,
+)
+/** [tone] is "danger", "warn", "success" or "normal", decided by alchemyServer. */
+@Serializable data class HoldfastEvent(val id: Long = 0, val day: Int = 0, val message: String = "", val tone: String = "normal")
+@Serializable data class HoldfastEventEntry(val message: String = "", val tone: String = "normal")
+
+// ── Ready-to-show parts of GET /api/holdfast/{groupName}. Levels are "ok", "warn" or "danger". ──
+@Serializable data class HoldfastCalendar(val day: Int = 0, val week: Int = 1, val weeksElapsed: Int = 0, val dayOfWeek: Int = 0)
+@Serializable data class HoldfastFood(
+    val amount: Int = 0,
+    val dailyNeed: Int = 0,
+    val daysOfFood: Int = 999,
+    val level: String = "ok",
+    val nextSpoilIn: Int = -1,
+    val spoilLevel: String = "ok",
+    val shelfLife: Int = 0,
+    val rationCostPerDay: Double = 0.0,
+)
+@Serializable data class HoldfastResource(val key: String = "", val label: String = "", val amount: Double = 0.0, val level: String = "ok")
+@Serializable data class HoldfastBuilt(val type: String = "", val name: String = "", val count: Int = 0)
+@Serializable data class HoldfastField(
+    val field: Int = 0,
+    val plantDay: Int = 0,
+    val grownDays: Int = 0,
+    val harvestDays: Int = 0,
+    val percent: Int = 0,
+    val ready: Boolean = false,
+)
+@Serializable data class HoldfastCrop(
+    val type: String = "",
+    val label: String = "",
+    val annual: Boolean = false,
+    val planted: Int = 0,
+    val showProgress: Boolean = true,
+    val harvestDays: Int? = null,
+    val harvestFood: Int = 0,
+    val harvestGold: Int = 0,
+    val fields: List<HoldfastField> = emptyList(),
+)
+@Serializable data class HoldfastFallow(
+    val type: String = "",
+    val label: String = "",
+    val fallow: Int = 0,
+    val seedCost: Int = 0,
+    val replantCost: Int = 0,
+    val canAfford: Boolean = false,
+)
+@Serializable data class HoldfastFoodMarket(
+    val available: Boolean = false,
+    val markets: Int = 0,
+    val enabled: Boolean = false,
+    val dailyCap: Int = 0,
+    val dailyGold: Double = 0.0,
+    val reserve: Int = 0,
+    val reserveDays: Int = 14,
+    val sellableToday: Int = 0,
+)
 @Serializable data class HoldfastStatus(
     val holdfast: Holdfast = Holdfast(),
     val message: String = "",
@@ -253,6 +323,17 @@ data class BrewPotionResponse(val message: String = "")
     val populationChange: Int = 0,
     val avgDailyGrowth: Double = 0.0,
     val populationHistory: List<Int> = emptyList(),
+    val calendar: HoldfastCalendar = HoldfastCalendar(),
+    val castleName: String = "",
+    /** "rising", "falling", "steady", or null while there is too little history. */
+    val populationTrend: String? = null,
+    val happinessLevel: String = "ok",
+    val food: HoldfastFood = HoldfastFood(),
+    val resources: List<HoldfastResource> = emptyList(),
+    val builtBuildings: List<HoldfastBuilt> = emptyList(),
+    val crops: List<HoldfastCrop> = emptyList(),
+    val fallowFields: List<HoldfastFallow> = emptyList(),
+    val foodMarket: HoldfastFoodMarket = HoldfastFoodMarket(),
 )
 @Serializable data class HoldfastOperationResponse(val success: Boolean = false, val message: String = "")
 
@@ -268,6 +349,8 @@ data class BrewPotionResponse(val message: String = "")
 @Serializable data class HoldfastAdvanceResponse(
     val success: Boolean = false,
     val events: List<String> = emptyList(),
+    /** The same lines as [events], each with its tone. */
+    val eventEntries: List<HoldfastEventEntry> = emptyList(),
     val holdfast: Holdfast = Holdfast(),
     val dailyIncome: Double = 0.0,
     val dailyUpkeep: Double = 0.0,
@@ -475,6 +558,146 @@ data class PokemonSpecies(
 @Serializable data class EvolutionResult(val success: Boolean = false, val oldName: String = "", val newName: String = "", val newSpeciesId: Int = 0, val newSpriteKey: String = "")
 @Serializable data class HealPokemonRequest(val caughtId: Long, val item: String)
 @Serializable data class HealPokemonResult(val success: Boolean = false, val caughtId: Long = 0, val currentHp: Int = 0, val maxHp: Int = 0, val restored: Int = 0, val message: String = "")
+
+// ── Pokemon map ──────────────────────────────────────────────────────────────
+//
+// The live world: spawns, PokeStops and gyms around the player, mirroring what
+// the website's Leaflet map shows. Every field carries a default because the
+// server builds these responses from hand-written maps rather than a schema, so
+// a key that is absent for one caller must not fail the whole decode.
+//
+// Timestamps arrive as ISO-8601 strings (Spring Boot leaves
+// WRITE_DATES_AS_TIMESTAMPS off), and are kept as String here to match the rest
+// of this file rather than pulling a date library into the model layer.
+
+/** One wild Pokemon on the map. Expires on its own; `caughtByPlayer` is set once taken. */
+@Serializable
+data class PokemonSpawn(
+    val id: Long = 0,
+    val speciesId: Int = 0,
+    val speciesName: String = "",
+    val spriteKey: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val spawnedAt: String = "",
+    val expiresAt: String = "",
+    val caughtByPlayer: Int? = null,
+    val level: Int = 0,
+)
+
+/** A PokeStop. `canSpin` is the server's cooldown verdict, not something to recompute. */
+@Serializable
+data class Pokestop(
+    val id: Long = 0,
+    val name: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val lastSpunBy: Int? = null,
+    val lastSpunAt: String? = null,
+    val canSpin: Boolean = false,
+    val biome: String = "NORMAL",
+    val lureExpiresAt: String? = null,
+)
+
+/** A gym. `controllingTeam` is VALOR / MYSTIC / INSTINCT, or null when unclaimed. */
+@Serializable
+data class Gym(
+    val id: Long = 0,
+    val name: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val controllingTeam: String? = null,
+    val lastSpunBy: Int? = null,
+    val lastSpunAt: String? = null,
+    val canSpin: Boolean = false,
+    val defenders: List<GymDefender> = emptyList(),
+)
+
+/** A Pokemon defending a gym slot. `playerId`/`caughtId` are null for NPC defenders. */
+@Serializable
+data class GymDefender(
+    val id: Long = 0,
+    val gymId: Long = 0,
+    val playerId: Int? = null,
+    val caughtId: Long? = null,
+    val slot: Int = 0,
+    val motivation: Int = 0,
+    val speciesId: Int = 0,
+    val name: String = "",
+    val spriteKey: String = "",
+    val type1: String = "",
+    val type2: String? = null,
+    val level: Int = 0,
+    val hp: Int = 0,
+    val attack: Int = 0,
+    val defense: Int = 0,
+    val spAtk: Int = 0,
+    val spDef: Int = 0,
+    val speed: Int = 0,
+    val moveIds: List<Int> = emptyList(),
+    val placedAt: String = "",
+)
+
+// Requests. These mirror the server's hand-parsed bodies exactly; a renamed field
+// is a silent 400 rather than a compile error, so they are kept literal.
+@Serializable data class CatchRequest(
+    val spawnId: Long, val lat: Double, val lng: Double,
+    val ballType: String = "POKEBALL", val berry: String? = null, val battleId: Long? = null,
+)
+@Serializable data class SpinStopRequest(val stopId: Long, val lat: Double, val lng: Double)
+@Serializable data class AddStopRequest(val name: String, val lat: Double, val lng: Double)
+@Serializable data class LureStopRequest(val stopId: Long)
+@Serializable data class AddGymRequest(val name: String, val lat: Double, val lng: Double)
+@Serializable data class SpinGymRequest(val gymId: Long, val lat: Double, val lng: Double)
+@Serializable data class SetTeamRequest(val team: String)
+@Serializable data class WalkRequest(val lat: Double, val lng: Double)
+
+/**
+ * Result of a throw. The server answers `{success:false, message:"It broke free!"}`
+ * on a miss and `{success:true, pokemon:{...}}` on a catch, so both halves are
+ * optional rather than one being inferable from the other.
+ */
+@Serializable data class CatchResult(
+    val success: Boolean = false,
+    val message: String = "",
+    val pokemon: CaughtPokemon? = null,
+)
+
+/** Spinning a stop. `egg` is the km tier of an egg that came with it, or 0. */
+@Serializable data class SpinStopResult(
+    val item: String = "", val quantity: Int = 0, val egg: Double = 0.0, val message: String = "",
+)
+
+/** Spinning a gym disc. No egg from gyms, so no `egg` field here. */
+@Serializable data class SpinGymResult(
+    val item: String = "", val quantity: Int = 0, val message: String = "",
+)
+
+/** Activating a Lure Module. The server answers only a message. */
+@Serializable data class LureStopResult(val message: String = "")
+
+@Serializable data class TeamResponse(val team: String = "")
+@Serializable data class SetTeamResult(val success: Boolean = false, val team: String = "")
+
+/**
+ * A GPS ping's effect. `events` is heterogeneous on the server — egg hatches and
+ * buddy candy are built from separate maps — so every field past `type` is
+ * optional and only the ones for that `type` are populated.
+ */
+@Serializable data class WalkEvent(
+    val type: String = "",
+    val tierKm: Double? = null,
+    val speciesName: String? = null,
+    val spriteKey: String? = null,
+    val level: Int? = null,
+    val candy: Int? = null,
+    val caughtId: Long? = null,
+    val buddyName: String? = null,
+)
+
+@Serializable data class WalkResult(
+    val totalKm: Double = 0.0, val deltaKm: Double = 0.0, val events: List<WalkEvent> = emptyList(),
+)
 
 /**
  * Response of POST /api/auth/sso/generate-token. Single-use and short-lived, so it

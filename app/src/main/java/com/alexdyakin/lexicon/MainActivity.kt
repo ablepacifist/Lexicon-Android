@@ -59,6 +59,7 @@ import com.alexdyakin.lexicon.ui.pokemon.PokedexScreen
 import com.alexdyakin.lexicon.ui.pokemon.PokemonShopScreen
 import com.alexdyakin.lexicon.ui.pokemon.EggsScreen
 import com.alexdyakin.lexicon.ui.pokemon.PokemonDetailScreen
+import com.alexdyakin.lexicon.ui.pokemon.map.PokemonMapScreen
 import com.alexdyakin.lexicon.ui.profile.ProfileScreen
 import com.alexdyakin.lexicon.ui.notifications.NotificationsScreen
 import com.alexdyakin.lexicon.ui.theme.LexiconTheme
@@ -102,6 +103,7 @@ object Routes {
     const val POKEMON_SHOP = "pokemon-shop"
     const val EGGS = "eggs"
     const val POKEMON_DETAIL = "pokemon-detail/{id}"
+    const val POKEMON_MAP = "pokemon-map"
     const val VOICE = "voice"
     const val LEXI = "lexi"
 }
@@ -379,7 +381,8 @@ private fun LexiconApp(
         composable(Routes.HOLDFAST) { HoldfastScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.EVENTS) { EventsScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.NOTIFICATIONS) { NotificationsScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.POKEMON) { PokemonScreen(onBack = { navController.popBackStack() }, onOpenPokedex = { navController.navigate(Routes.POKEDEX) }, onOpenShop = { navController.navigate(Routes.POKEMON_SHOP) }, onOpenEggs = { navController.navigate(Routes.EGGS) }, onOpenPokemon = { id -> navController.navigate("pokemon-detail/$id") }) }
+        composable(Routes.POKEMON) { PokemonScreen(onBack = { navController.popBackStack() }, onOpenMap = { navController.navigate(Routes.POKEMON_MAP) }, onOpenPokedex = { navController.navigate(Routes.POKEDEX) }, onOpenShop = { navController.navigate(Routes.POKEMON_SHOP) }, onOpenEggs = { navController.navigate(Routes.EGGS) }, onOpenPokemon = { id -> navController.navigate("pokemon-detail/$id") }) }
+        composable(Routes.POKEMON_MAP) { PokemonMapScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.POKEDEX) { PokedexScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.POKEMON_SHOP) { PokemonShopScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.EGGS) { EggsScreen(onBack = { navController.popBackStack() }) }

@@ -18,6 +18,9 @@ retrofit = "2.11.0"
 serialization = "1.7.3"
 retrofitSerialization = "1.0.0"
 coil = "2.7.0"
+# OpenStreetMap tiles, the same source the website's Leaflet map uses, so the
+# Android map matches it and needs no API key or Play Services.
+osmdroid = "6.1.20"
 datastore = "1.1.1"
 media3 = "1.5.1"
 # Lexi (on-device voice assistant). onnxruntime is pinned to the version Lexi's
@@ -63,6 +66,7 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-serialization = { group = "com.jakewharton.retrofit", name = "retrofit2-kotlinx-serialization-converter", version.ref = "retrofitSerialization" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 # Desktop build of the same runtime, for running the real wake-word models in JVM tests.

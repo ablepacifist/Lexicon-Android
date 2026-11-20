@@ -50,6 +50,7 @@ import com.alexdyakin.lexicon.data.SkipStreamRequest
 import com.alexdyakin.lexicon.data.StorageInfo
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import com.alexdyakin.lexicon.data.PlaybackPosition
 import com.alexdyakin.lexicon.data.PlaybackPositionRequest
 import com.alexdyakin.lexicon.data.Playlist
@@ -82,10 +83,29 @@ import com.alexdyakin.lexicon.data.EvolvePokemonRequest
 import com.alexdyakin.lexicon.data.EvolutionResult
 import com.alexdyakin.lexicon.data.HealPokemonRequest
 import com.alexdyakin.lexicon.data.HealPokemonResult
+import com.alexdyakin.lexicon.data.AddGymRequest
+import com.alexdyakin.lexicon.data.AddStopRequest
+import com.alexdyakin.lexicon.data.CatchRequest
+import com.alexdyakin.lexicon.data.CatchResult
+import com.alexdyakin.lexicon.data.Gym
+import com.alexdyakin.lexicon.data.LureStopRequest
+import com.alexdyakin.lexicon.data.LureStopResult
+import com.alexdyakin.lexicon.data.Pokestop
+import com.alexdyakin.lexicon.data.PokemonSpawn
+import com.alexdyakin.lexicon.data.SetTeamRequest
+import com.alexdyakin.lexicon.data.SetTeamResult
+import com.alexdyakin.lexicon.data.SpinGymRequest
+import com.alexdyakin.lexicon.data.SpinGymResult
+import com.alexdyakin.lexicon.data.SpinStopRequest
+import com.alexdyakin.lexicon.data.SpinStopResult
+import com.alexdyakin.lexicon.data.TeamResponse
+import com.alexdyakin.lexicon.data.WalkRequest
+import com.alexdyakin.lexicon.data.WalkResult
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.HTTP
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Multipart
 import retrofit2.http.Part
@@ -350,14 +370,22 @@ interface AlchemyApi {
     @POST("api/holdfast/create") suspend fun createHoldfast(@Body body: CreateHoldfastRequest): Holdfast
     // These three return their own narrow shapes, not a full status — see the doc on
     // HoldfastAdvanceResponse. Callers must re-GET api/holdfast/{groupName} afterwards.
-    @POST("api/holdfast/advance") suspend fun advanceHoldfast(@Body body: AdvanceHoldfastRequest): HoldfastAdvanceResponse
+    /** Admin only: [ssoToken] is a fresh Lexicon SSO token; Alchemy checks HOLDFAST_ADVANCE_TIME with it. */
+    @POST("api/holdfast/advance") suspend fun advanceHoldfast(
+        @Body body: AdvanceHoldfastRequest,
+        @Header("X-Lexicon-Sso") ssoToken: String,
+    ): HoldfastAdvanceResponse
     @POST("api/holdfast/build") suspend fun buildHoldfast(@Body body: BuildHoldfastRequest): HoldfastMutationResponse
     @POST("api/holdfast/deposit") suspend fun depositHoldfast(@Body body: DepositHoldfastRequest): Holdfast
     @POST("api/holdfast/withdraw") suspend fun withdrawHoldfast(@Body body: WithdrawHoldfastRequest): HoldfastOperationResponse
     @POST("api/holdfast/replant") suspend fun replantHoldfast(@Body body: ReplantHoldfastRequest): HoldfastMutationResponse
     @POST("api/holdfast/toggle-food-market") suspend fun toggleFoodMarket(@Body body: ToggleFoodMarketRequest): Holdfast
     @GET("api/holdfast/{groupName}/events") suspend fun holdfastEvents(@Path("groupName") groupName: String): List<HoldfastEvent>
-    @DELETE("api/holdfast/{groupName}") suspend fun deleteHoldfast(@Path("groupName") groupName: String): HoldfastOperationResponse
+    /** Admin only: Alchemy checks HOLDFAST_DELETE with the SSO token. */
+    @DELETE("api/holdfast/{groupName}") suspend fun deleteHoldfast(
+        @Path("groupName") groupName: String,
+        @Header("X-Lexicon-Sso") ssoToken: String,
+    ): HoldfastOperationResponse
 }
 
 interface PokemonApi {
@@ -380,4 +408,52 @@ interface PokemonApi {
     @GET("api/pokemon/{id}/evolution") suspend fun evolutionOptions(@Path("id") id: Long): List<EvolutionOption>
     @POST("api/pokemon/{id}/evolve") suspend fun evolve(@Path("id") id: Long, @Body body: EvolvePokemonRequest): EvolutionResult
     @POST("api/pokemon/heal") suspend fun heal(@Body body: HealPokemonRequest): HealPokemonResult
+
+    // ── Map ──────────────────────────────────────────────────────────────────
+    //
+    // `radius` is metres and the server defaults it to 500. The website asks for
+    // 500 and then hides anything past 200m behind a "sightings" treatment, so
+    // the radius here is the fetch window, not the interaction range.
+    //
+    // GET /nearby has a side effect: it records the player's position and spawns
+    // more Pokemon when the area is sparse. So it is the call that makes the world
+    // populate, and polling it is load-bearing rather than just a refresh.
+    @GET("api/pokemon/nearby")
+    suspend fun nearbySpawns(
+        @Query("lat") lat: Double, @Query("lng") lng: Double,
+        @Query("radius") radius: Double = 500.0,
+    ): List<PokemonSpawn>
+
+    @GET("api/pokemon/pokestops/nearby")
+    suspend fun nearbyStops(
+        @Query("lat") lat: Double, @Query("lng") lng: Double,
+        @Query("radius") radius: Double = 500.0,
+    ): List<Pokestop>
+
+    @GET("api/pokemon/gyms/nearby")
+    suspend fun nearbyGyms(
+        @Query("lat") lat: Double, @Query("lng") lng: Double,
+        @Query("radius") radius: Double = 500.0,
+    ): List<Gym>
+
+    @GET("api/pokemon/gym/{id}") suspend fun gym(@Path("id") id: Long): Gym
+
+    @POST("api/pokemon/catch") suspend fun attemptCatch(@Body body: CatchRequest): CatchResult
+
+    @POST("api/pokemon/pokestop/spin") suspend fun spinStop(@Body body: SpinStopRequest): SpinStopResult
+
+    // Answers a bare string ("Pokestop added: ..."), not JSON, so this cannot be
+    // given a @Serializable return type.
+    @POST("api/pokemon/pokestop/add") suspend fun addStop(@Body body: AddStopRequest): ResponseBody
+
+    @POST("api/pokemon/pokestop/lure") suspend fun lureStop(@Body body: LureStopRequest): LureStopResult
+
+    @POST("api/pokemon/gym/add") suspend fun addGym(@Body body: AddGymRequest): Gym
+    @POST("api/pokemon/gym/spin") suspend fun spinGym(@Body body: SpinGymRequest): SpinGymResult
+
+    @GET("api/pokemon/team") suspend fun team(): TeamResponse
+    @POST("api/pokemon/team") suspend fun setTeam(@Body body: SetTeamRequest): SetTeamResult
+
+    /** A GPS ping. Advances walked distance, egg incubation and buddy candy. */
+    @POST("api/pokemon/walk") suspend fun walk(@Body body: WalkRequest): WalkResult
 }

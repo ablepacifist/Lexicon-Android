@@ -66,6 +66,8 @@ data class BridgeChatState(
     val unreadMentions: Int = 0,
     /** Transient; the bridge sends no correlation id so this cannot be attributed. */
     val notice: String? = null,
+    /** The GTW game servers panel. */
+    val games: GamesState = GamesState(),
 ) {
     /** Our own presence key, or null before authentication. */
     val myWebClientId: String?
@@ -89,6 +91,32 @@ data class BridgeChatState(
         )
     }
 }
+
+/**
+ * The game servers panel.
+ *
+ * [status] is null until the bridge first answers, which is different from an answer
+ * saying the servers are unavailable — the panel shows "loading" for one and the
+ * bridge's error for the other.
+ */
+data class GamesState(
+    val status: GamesStatusEvent? = null,
+    /** The server whose log/console is open, or null. */
+    val consoleServerId: String? = null,
+    val consoleText: String = "",
+    val consoleLoading: Boolean = false,
+    /** The answer to this player's own last action. */
+    val result: GamesResult? = null,
+    /** The last broadcast, e.g. "bob started Palworld". */
+    val notice: String? = null,
+) {
+    val anyOnline: Boolean get() = status?.servers?.any { it.online } == true
+}
+
+data class GamesResult(val text: String, val ok: Boolean)
+
+/** Lines of log/console kept on screen; see [BridgeRepository.boundConsole]. */
+private const val CONSOLE_MAX_LINES = 2_000
 
 /**
  * Turns the bridge's frame stream into something a screen can render.
@@ -302,11 +330,90 @@ class BridgeRepository @Inject constructor(
         _state.update { it.copy(notice = null) }
     }
 
+    // ── game servers ─────────────────────────────────────────────────────────
+    //
+    // Every action is checked again by the bridge (Lexicon permissions) and by the
+    // manager on GTW; nothing here decides who may do what.
+
+    fun refreshGames() {
+        scope.launch { connection.send(GamesListCommand()) }
+    }
+
+    fun startGameServer(serverId: String) = sendGames(GamesServerCommand(GamesServerCommand.Action.START, serverId))
+
+    fun stopGameServer(serverId: String) = sendGames(GamesServerCommand(GamesServerCommand.Action.STOP, serverId))
+
+    fun restartGameServer(serverId: String) =
+        sendGames(GamesServerCommand(GamesServerCommand.Action.RESTART, serverId))
+
+    fun requestGameRestart(serverId: String, reason: String) =
+        sendGames(GamesRequestRestartCommand(serverId, reason))
+
+    fun decideGameRestart(requestId: String, approve: Boolean) =
+        sendGames(GamesDecideRequestCommand(requestId, approve))
+
+    fun openGameConsole(serverId: String) {
+        _state.update {
+            it.copy(games = it.games.copy(consoleServerId = serverId, consoleText = "", consoleLoading = true))
+        }
+        scope.launch { connection.send(GamesLogsCommand(serverId)) }
+    }
+
+    fun closeGameConsole() {
+        _state.update {
+            it.copy(games = it.games.copy(consoleServerId = null, consoleText = "", consoleLoading = false))
+        }
+    }
+
+    fun sendGameConsoleCommand(command: String) {
+        val serverId = _state.value.games.consoleServerId ?: return
+        val trimmed = command.trim()
+        if (trimmed.isEmpty()) return
+        // Echoed straight away, as the web console does, so the output that follows
+        // has its prompt above it.
+        appendConsole(serverId, "> $trimmed")
+        scope.launch { connection.send(GamesConsoleCommand(serverId, trimmed)) }
+    }
+
+    fun dismissGamesResult() {
+        _state.update { it.copy(games = it.games.copy(result = null)) }
+    }
+
+    fun dismissGamesNotice() {
+        _state.update { it.copy(games = it.games.copy(notice = null)) }
+    }
+
+    private fun sendGames(command: BridgeCommand) {
+        _state.update { it.copy(games = it.games.copy(result = null)) }
+        scope.launch { connection.send(command) }
+    }
+
+    /** Only for the console that is open; a late answer for one just closed is dropped. */
+    private fun appendConsole(serverId: String, text: String) {
+        _state.update { current ->
+            if (current.games.consoleServerId != serverId) return@update current
+            val joined = if (current.games.consoleText.isEmpty()) text else current.games.consoleText + "\n" + text
+            current.copy(games = current.games.copy(consoleText = boundConsole(joined)))
+        }
+    }
+
+    /**
+     * Keeps the console to its last [CONSOLE_MAX_LINES]. A log is up to a thousand lines
+     * and every command adds more, and this string is re-rendered on each change.
+     */
+    private fun boundConsole(text: String): String {
+        val lines = text.split('\n')
+        return if (lines.size <= CONSOLE_MAX_LINES) text else lines.takeLast(CONSOLE_MAX_LINES).joinToString("\n")
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     private suspend fun reestablish() {
         connection.send(GetNotificationsCommand())
         connection.send(DmConversationsCommand())
+        // The web client asks on every sign-in; the bridge only pushes status when
+        // something changes, so a fresh socket would otherwise sit on stale state.
+        connection.send(GamesListCommand())
         val channelId = _state.value.selectedChannelId ?: return
         connection.send(JoinChannelCommand(channelId))
         connection.send(GetHistoryCommand(channelId))
@@ -419,6 +526,29 @@ class BridgeRepository @Inject constructor(
             // No correlation id exists, so this cannot be tied to a request. Show it
             // and move on rather than failing a specific call.
             is ErrorEvent -> _state.update { it.copy(notice = event.message) }
+
+            is GamesStatusEvent -> _state.update { it.copy(games = it.games.copy(status = event)) }
+
+            is GamesActionResultEvent -> _state.update {
+                it.copy(games = it.games.copy(result = GamesResult(event.text, event.ok)))
+            }
+
+            is GamesNoticeEvent -> _state.update { it.copy(games = it.games.copy(notice = event.text)) }
+
+            is GamesLogsEvent -> _state.update { current ->
+                if (current.games.consoleServerId != event.serverId) return@update current
+                current.copy(
+                    games = current.games.copy(
+                        consoleText = boundConsole(event.lines.joinToString("\n")),
+                        consoleLoading = false,
+                    ),
+                )
+            }
+
+            is GamesCommandResultEvent -> appendConsole(
+                event.serverId,
+                if (event.ok) event.output?.takeIf { it.isNotBlank() } ?: "(sent)" else "error: " + (event.error ?: "failed"),
+            )
 
             else -> Unit
         }

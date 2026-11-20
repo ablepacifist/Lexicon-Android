@@ -310,6 +310,12 @@ object BridgeEventSerializer : JsonContentPolymorphicSerializer<BridgeEvent>(Bri
             "pinned_messages" -> PinnedMessagesEvent.serializer()
             "pin_added" -> PinAddedEvent.serializer()
             "pin_removed" -> PinRemovedEvent.serializer()
+            // Game servers on GTW — see BridgeFramesGames.kt.
+            "games_status" -> GamesStatusEvent.serializer()
+            "games_action_result" -> GamesActionResultEvent.serializer()
+            "games_logs" -> GamesLogsEvent.serializer()
+            "games_command_result" -> GamesCommandResultEvent.serializer()
+            "games_notice" -> GamesNoticeEvent.serializer()
             else -> UnknownEventSerializer
         }
 }

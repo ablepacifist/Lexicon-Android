@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -125,6 +127,20 @@ class VoiceViewModel @Inject constructor(
     fun send(text: String) = repository.sendMessage(text)
     fun loadOlder() = repository.loadOlder()
     fun dismissNotice() = repository.dismissNotice()
+
+    // Game servers on GTW. Thin by design: the repository sends, the bridge and the
+    // manager decide.
+    fun refreshGames() = repository.refreshGames()
+    fun startGameServer(id: String) = repository.startGameServer(id)
+    fun stopGameServer(id: String) = repository.stopGameServer(id)
+    fun restartGameServer(id: String) = repository.restartGameServer(id)
+    fun requestGameRestart(id: String, reason: String) = repository.requestGameRestart(id, reason)
+    fun decideGameRestart(requestId: String, approve: Boolean) = repository.decideGameRestart(requestId, approve)
+    fun openGameConsole(id: String) = repository.openGameConsole(id)
+    fun closeGameConsole() = repository.closeGameConsole()
+    fun sendGameConsoleCommand(command: String) = repository.sendGameConsoleCommand(command)
+    fun dismissGamesResult() = repository.dismissGamesResult()
+    fun dismissGamesNotice() = repository.dismissGamesNotice()
     fun noteTyping() = repository.noteTyping()
     fun stopTyping() = repository.stopTyping()
     fun toggleReaction(messageId: String, emoji: String) =
@@ -171,6 +187,7 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
     var showMembers by rememberSaveable { mutableStateOf(false) }
     var showMentions by rememberSaveable { mutableStateOf(false) }
     var showPins by rememberSaveable { mutableStateOf(false) }
+    var showGames by rememberSaveable { mutableStateOf(false) }
     val voiceState by viewModel.voiceState.collectAsState()
     val context = LocalContext.current
 
@@ -263,6 +280,35 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
         PinsSheet(state.pins, onDismiss = { showPins = false })
     }
 
+    if (showGames) {
+        GamesSheet(
+            games = state.games,
+            connected = state.canSend(),
+            onDismiss = { showGames = false },
+            actions = GamesCallbacks(
+                refresh = viewModel::refreshGames,
+                start = viewModel::startGameServer,
+                stop = viewModel::stopGameServer,
+                restart = viewModel::restartGameServer,
+                requestRestart = viewModel::requestGameRestart,
+                decide = viewModel::decideGameRestart,
+                openConsole = viewModel::openGameConsole,
+                closeConsole = viewModel::closeGameConsole,
+                consoleCommand = viewModel::sendGameConsoleCommand,
+                dismissResult = viewModel::dismissGamesResult,
+            ),
+        )
+    }
+
+    // A broadcast like "bob started Palworld" reaches everyone, panel open or not; the
+    // web client shows it as a toast for five seconds.
+    LaunchedEffect(state.games.notice) {
+        if (state.games.notice != null) {
+            kotlinx.coroutines.delay(5_000)
+            viewModel.dismissGamesNotice()
+        }
+    }
+
     if (showMentions) {
         MentionsSheet(
             state = state,
@@ -300,6 +346,11 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
                         scope.launch { drawerState.close() }
                         joinVoice(it)
                     },
+                    gamesAnyOnline = state.games.anyOnline,
+                    onOpenGames = {
+                        scope.launch { drawerState.close() }
+                        showGames = true
+                    },
                 )
             }
         },
@@ -323,6 +374,21 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
                 pinCount = state.pins.size,
                 onBack = onBack,
             )
+
+            // Neutral, unlike the red notice below: it is news, not a failure. Hidden
+            // while the panel is open, which shows the same line itself.
+            state.games.notice?.takeIf { !showGames }?.let { gameNotice ->
+                Text(
+                    gameNotice,
+                    color = BridgeColors.textNormal,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(BridgeColors.bgTertiary)
+                        .clickable { showGames = true }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
 
             state.notice?.let { notice ->
                 Text(
@@ -467,6 +533,8 @@ private fun ChannelSidebar(
     onSelect: (Int) -> Unit,
     onOpenDm: (String) -> Unit,
     onJoinVoice: (Int) -> Unit,
+    gamesAnyOnline: Boolean,
+    onOpenGames: () -> Unit,
 ) {
     var collapsed by rememberSaveable { mutableStateOf(setOf<Int>()) }
     val rows = buildChannelRows(channels, collapsed)
@@ -479,6 +547,7 @@ private fun ChannelSidebar(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(16.dp),
         )
+        GamesEntry(anyOnline = gamesAnyOnline, onClick = onOpenGames)
         LazyColumn(Modifier.weight(1f)) {
             item {
                 DmSection(conversations, dmUnread, onOpenDm)
@@ -519,6 +588,53 @@ private fun ChannelSidebar(
             }
         }
         UserPanel(connection)
+    }
+}
+
+/**
+ * The way into the game servers panel.
+ *
+ * In the drawer rather than the header, unlike the web client's 🎮 button: the mobile
+ * header already holds the menu, pins, mentions, members and Back, and one more icon
+ * would leave the channel name a few characters. The green dot is the web button's
+ * `games-any-online` marker.
+ */
+@Composable
+private fun GamesEntry(anyOnline: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box {
+            Icon(
+                Icons.Filled.SportsEsports,
+                contentDescription = null,
+                tint = BridgeColors.interactiveNormal,
+                modifier = Modifier.size(20.dp),
+            )
+            if (anyOnline) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(BridgeColors.textPositive),
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "Game servers",
+            color = BridgeColors.interactiveNormal,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

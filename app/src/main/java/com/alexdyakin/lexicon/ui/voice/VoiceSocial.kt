@@ -500,7 +500,7 @@ private fun PinRow(pin: PinnedMessage) {
 // ── shared bits ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun SheetHandle() {
+internal fun SheetHandle() {
     Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
@@ -514,7 +514,7 @@ private fun SheetHandle() {
 
 /** Mirrors `.category-label`, reused for every sheet and sidebar section heading. */
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(
         text.uppercase(),
         color = BridgeColors.channelIcon,

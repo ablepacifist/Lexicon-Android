@@ -1,5 +1,10 @@
 package com.alexdyakin.lexicon.ui.profile
 
+import androidx.compose.foundation.layout.size
+import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.ConfirmDialog
+import com.alexdyakin.lexicon.data.fileNameFor
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -128,10 +133,17 @@ class ProfileViewModel @Inject constructor(
         )
     }
     fun updatePrefs(next: NotificationPrefs) = viewModelScope.launch {
+        // Shown at once, put back if the save fails: the switch used to stay where it was
+        // flicked even when the server never stored it.
+        val previous = _state.value.preferences
         _state.value = _state.value.copy(preferences = next, saving = true)
-        when (val result = safeApiCall { profileApi.updateNotificationPrefs(tokenStore.userId, next) }) {
+        when (safeApiCall { profileApi.updateNotificationPrefs(tokenStore.userId, next) }) {
             is ApiResult.Success -> _state.value = _state.value.copy(saving = false, message = "Notification settings saved.")
-            else -> _state.value = _state.value.copy(saving = false, message = "Could not save notification settings.")
+            else -> _state.value = _state.value.copy(
+                saving = false,
+                preferences = previous,
+                message = "Could not save notification settings.",
+            )
         }
     }
     fun levelUp(secret: String) = viewModelScope.launch {
@@ -295,7 +307,17 @@ private fun proxiedAvatarUrl(bridgePath: String): String {
 fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var secret by remember { mutableStateOf("") }
+    var confirmRemoveAvatar by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    if (confirmRemoveAvatar) {
+        ConfirmDialog(
+            title = "Remove your avatar?",
+            message = "Your profile goes back to the default picture everywhere, including the website.",
+            confirmLabel = "Remove",
+            onConfirm = viewModel::removeAvatar,
+            onDismiss = { confirmRemoveAvatar = false },
+        )
+    }
     val installPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (viewModel.canInstallPackages()) viewModel.installDownloadedUpdate()
         else viewModel.onInstallPermissionStillMissing()
@@ -311,7 +333,7 @@ fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewMode
         if (bytes == null || bytes.size > 2 * 1024 * 1024) {
             viewModel.showMessage("Could not read that image, or it exceeds 2 MB.")
         } else {
-            val filename = uri.lastPathSegment?.substringAfterLast('/') ?: "avatar.jpg"
+            val filename = context.contentResolver.fileNameFor(uri, "avatar.jpg")
             viewModel.uploadAvatar(bytes, filename, context.contentResolver.getType(uri))
         }
     }
@@ -319,7 +341,7 @@ fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewMode
         if (state.loading) { Column(Modifier.fillMaxSize().padding(padding), Arrangement.Center, Alignment.CenterHorizontally) { CircularProgressIndicator() }; return@ScreenScaffold }
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(state.avatarUrl, "Profile avatar", Modifier.width(78.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+                AsyncImage(state.avatarUrl, "Profile avatar", Modifier.size(78.dp).clip(CircleShape), contentScale = ContentScale.Crop)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(state.lexicon?.let { it.displayName.ifBlank { it.username } } ?: "Traveller", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
@@ -329,7 +351,8 @@ fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewMode
                 }
             }; Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button({ picker.launch("image/*") }, enabled = !state.saving) { Text("Choose avatar") }
-                Button(viewModel::removeAvatar, enabled = !state.saving) { Text("Remove") }
+                // Outlined and confirmed: it was a filled button, the heaviest thing on the card.
+                LexButton("Remove", onClick = { confirmRemoveAvatar = true }, tone = LexTone.Destructive, enabled = !state.saving)
             } } }
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard("⚗ Alchemy", "Level ${state.alchemy?.level ?: "—"}", Modifier.weight(1f))
@@ -365,7 +388,7 @@ fun ProfileScreen(onBack: () -> Unit, viewModel: ProfileViewModel = hiltViewMode
                 OutlinedTextField(secret, { secret = it }, label = { Text("Secret password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                 Button(onClick = { viewModel.levelUp(secret); secret = "" }, enabled = !state.saving) { Text("Level up") }
             } } }
-            state.message?.let { message -> item { Text(message, color = if (message.contains("saved") || message.contains("increased")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
+            state.message?.let { message -> item { Text(message, color = if (isProblem(message)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) } }
         }
     }
 }
@@ -416,11 +439,7 @@ private fun UpdateCard(
         update.message?.let {
             Text(
                 it,
-                color = if (it.contains("available", true) || it.contains("downloaded", true) || it.contains("opened", true)) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
+                color = if (isProblem(it)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
             OutlinedButton(onClick = onDismissMessage) { Text("Dismiss") }
         }
@@ -434,6 +453,18 @@ private fun UpdateCard(
     PreferenceToggle("Voice joins", prefs.enableVoiceJoin, saving) { save(prefs.copy(enableVoiceJoin = it)) }
     PreferenceToggle("Mentions", prefs.enableMention, saving) { save(prefs.copy(enableMention = it)) }
     PreferenceToggle("Now playing music", prefs.enableMusic, saving) { save(prefs.copy(enableMusic = it)) }
-    PreferenceToggle("Push notifications", prefs.enablePush, saving) { save(prefs.copy(enablePush = it)) }
+    // No push toggle: the app has no push (and will not use Firebase). Notifications arrive
+    // through the live feed while the app is open.
 } }
 @Composable private fun PreferenceToggle(label: String, checked: Boolean, disabled: Boolean, update: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f)); Switch(checked, update, enabled = !disabled) }
+
+/**
+ * Whether a status line reports a failure. It used to be the other way round, red unless the
+ * text contained "saved" or "increased", so "Avatar updated." and "You already have the
+ * latest version." were shown as errors.
+ */
+private fun isProblem(message: String): Boolean {
+    val m = message.lowercase()
+    return listOf("could not", "couldn't", "can't", "failed", "rejected", "missing", "no larger", "exceeds", "sign in again", "allow installs", "first")
+        .any { it in m }
+}

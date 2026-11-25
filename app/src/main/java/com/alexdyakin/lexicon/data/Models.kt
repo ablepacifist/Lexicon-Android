@@ -392,6 +392,8 @@ data class MediaFile(
     val sourceUrl: String = "",
     val isPublic: Boolean = true,
     val uploadDate: String = "",
+    /** The uploader's user id; only they can edit or delete it. 0 when the server omits it. */
+    val uploadedBy: Int = 0,
 ) {
     val displayTitle: String get() = title.ifBlank { originalFilename.ifBlank { filename } }
 

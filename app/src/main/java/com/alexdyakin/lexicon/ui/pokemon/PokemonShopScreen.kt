@@ -38,7 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class ShopUiState(val loading: Boolean = true, val saving: Boolean = false, val items: List<PlayerItem> = emptyList(), val catalog: List<ShopItem> = emptyList(), val coins: Int = 0, val message: String? = null)
+data class ShopUiState(val loading: Boolean = true, val saving: Boolean = false, val items: List<PlayerItem> = emptyList(), val catalog: List<ShopItem> = emptyList(), val coins: Int = 0, val coinsKnown: Boolean = true, val message: String? = null)
 
 @HiltViewModel
 class PokemonShopViewModel @Inject constructor(private val api: PokemonApi) : ViewModel() {
@@ -48,8 +48,15 @@ class PokemonShopViewModel @Inject constructor(private val api: PokemonApi) : Vi
     fun refresh() = viewModelScope.launch {
         val items = safeApiCall { api.items() }.successOrNull.orEmpty()
         val catalog = safeApiCall { api.shopCatalog() }.successOrNull.orEmpty()
-        val coins = safeApiCall { api.playerStats() }.successOrNull?.coins ?: 0
-        _state.value = ShopUiState(false, items = items, catalog = catalog, coins = coins)
+        val coins = safeApiCall { api.playerStats() }.successOrNull?.coins
+        _state.value = ShopUiState(
+            false,
+            items = items,
+            catalog = catalog,
+            coins = coins ?: 0,
+            coinsKnown = coins != null,
+            message = if (coins == null) "Couldn't load your coins. Pull back and open the shop again." else null,
+        )
     }
     fun buy(item: ShopItem) = viewModelScope.launch {
         _state.value = _state.value.copy(saving = true, message = null)
@@ -74,10 +81,10 @@ fun PokemonShopScreen(onBack: () -> Unit, viewModel: PokemonShopViewModel = hilt
             state.loading -> LoadingBox(padding)
             state.catalog.isEmpty() -> EmptyBox(padding, "The PokéMart is unavailable.")
             else -> LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { Text("${state.coins} coins", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary); state.message?.let { Text(it) }; Text("Bag", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp)); Text(state.items.joinToString { "${it.itemType.replace('_', ' ')} ×${it.quantity}" }.ifBlank { "Your bag is empty." }) }
+                item { Text(if (state.coinsKnown) "${state.coins} coins" else "Coins unavailable", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary); state.message?.let { Text(it) }; Text("Bag", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp)); Text(state.items.joinToString { "${it.itemType.replace('_', ' ')} ×${it.quantity}" }.ifBlank { "Your bag is empty." }) }
                 item { Text("Shop", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
                 items(state.catalog, key = { it.itemType }) { item ->
-                    Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(item.label, style = MaterialTheme.typography.titleMedium); Text("${item.price} coins") }; Button(onClick = { viewModel.buy(item) }, enabled = !state.saving && state.coins >= item.price) { Text("Buy") } } }
+                    Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(item.label, style = MaterialTheme.typography.titleMedium); Text("${item.price} coins") }; Button(onClick = { viewModel.buy(item) }, enabled = !state.saving && state.coinsKnown && state.coins >= item.price) { Text("Buy") } } }
                 }
             }
         }

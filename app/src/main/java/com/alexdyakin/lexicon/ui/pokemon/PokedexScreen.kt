@@ -60,7 +60,7 @@ fun PokedexScreen(onBack: () -> Unit, viewModel: PokedexViewModel = hiltViewMode
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("ALL") }
     val visible = state.species.filter { species ->
-        (filter == "ALL" || (filter == "CAUGHT" && species.id in state.caught) || (filter == "UNCUGHT" && species.id !in state.caught)) && species.name.contains(query, true)
+        (filter == "ALL" || (filter == "CAUGHT" && species.id in state.caught) || (filter == "UNCAUGHT" && species.id !in state.caught)) && species.name.contains(query, true)
     }
     ScreenScaffold("Pokédex", onBack) { padding ->
         when {
@@ -70,7 +70,7 @@ fun PokedexScreen(onBack: () -> Unit, viewModel: PokedexViewModel = hiltViewMode
                 Text("${state.caught.size} / ${state.species.size} species caught", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(query, { query = it }, label = { Text("Search species") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 androidx.compose.foundation.layout.Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("ALL", "CAUGHT", "UNCUGHT").forEach { item ->
+                    listOf("ALL", "CAUGHT", "UNCAUGHT").forEach { item ->
                         androidx.compose.material3.FilterChip(selected = filter == item, onClick = { filter = item }, label = { Text(item.lowercase().replaceFirstChar { it.uppercase() }) })
                     }
                 }

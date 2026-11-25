@@ -44,6 +44,10 @@ class PlaybackService : MediaSessionService() {
                 /* handleAudioFocus = */ true,
             )
             .setHandleAudioBecomingNoisy(true)   // pause when headphones unplug
+            // Holds a CPU and Wi-Fi lock while playing. Without it, a stream played with the
+            // screen off could stall once the device dozed: the foreground service kept the
+            // process alive, but nothing kept the radio delivering bytes to ExoPlayer.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         mediaSession = MediaSession.Builder(this, player).build()

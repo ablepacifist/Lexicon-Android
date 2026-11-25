@@ -236,3 +236,38 @@ fun EmptyBox(padding: PaddingValues = PaddingValues(), message: String) {
         )
     }
 }
+
+/**
+ * A failed load, said as a failure, with a way to try again.
+ *
+ * Screens used to fall through to their empty state on an error, so "No notifications yet"
+ * or an empty bag was shown when the request had simply failed, and the only recovery was
+ * leaving the screen and coming back.
+ */
+@Composable
+fun ErrorBox(
+    message: String,
+    onRetry: () -> Unit,
+    padding: PaddingValues = PaddingValues(),
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(padding),
+        Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(Spacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+        ) {
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            LexButton("Try again", onClick = onRetry)
+        }
+    }
+}

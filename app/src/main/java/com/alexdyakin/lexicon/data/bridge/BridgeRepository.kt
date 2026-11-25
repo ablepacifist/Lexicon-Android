@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,6 +26,8 @@ data class ChatLine(
     /** Set on IMAGE and GIF messages. */
     val attachment: ChatAttachment? = null,
     val replyToId: String? = null,
+    /** Who and what this line replies to, as the bridge sent it. */
+    val replyTo: ReplyPreview? = null,
     /** Set only for a line this device sent that the server has not echoed yet. */
     val pending: Boolean = false,
 )
@@ -43,6 +46,8 @@ data class BridgeChatState(
     val channels: List<BridgeChannel> = emptyList(),
     val selectedChannelId: Int? = null,
     val messages: List<ChatLine> = emptyList(),
+    /** The message the next send replies to, chosen with a long-press. */
+    val replyingTo: ChatLine? = null,
     val loadingHistory: Boolean = false,
     /** Web/mobile clients, keyed by "web_<userId>". */
     val webClients: List<WebClient> = emptyList(),
@@ -66,6 +71,8 @@ data class BridgeChatState(
     val unreadMentions: Int = 0,
     /** Transient; the bridge sends no correlation id so this cannot be attributed. */
     val notice: String? = null,
+    /** The GTW game servers panel. */
+    val games: GamesState = GamesState(),
 ) {
     /** Our own presence key, or null before authentication. */
     val myWebClientId: String?
@@ -89,6 +96,32 @@ data class BridgeChatState(
         )
     }
 }
+
+/**
+ * The game servers panel.
+ *
+ * [status] is null until the bridge first answers, which is different from an answer
+ * saying the servers are unavailable — the panel shows "loading" for one and the
+ * bridge's error for the other.
+ */
+data class GamesState(
+    val status: GamesStatusEvent? = null,
+    /** The server whose log/console is open, or null. */
+    val consoleServerId: String? = null,
+    val consoleText: String = "",
+    val consoleLoading: Boolean = false,
+    /** The answer to this player's own last action. */
+    val result: GamesResult? = null,
+    /** The last broadcast, e.g. "bob started Palworld". */
+    val notice: String? = null,
+) {
+    val anyOnline: Boolean get() = status?.servers?.any { it.online } == true
+}
+
+data class GamesResult(val text: String, val ok: Boolean)
+
+/** Lines of log/console kept on screen; see [BridgeRepository.boundConsole]. */
+private const val CONSOLE_MAX_LINES = 2_000
 
 /**
  * Turns the bridge's frame stream into something a screen can render.
@@ -149,10 +182,25 @@ class BridgeRepository @Inject constructor(
         connection.stop()
     }
 
+    /**
+     * Sign-out. [stop] alone closed the socket but left `started` set and every channel, DM
+     * and message in [state], so the next person to sign in on the phone saw the previous
+     * user's chats and their own [start] did nothing.
+     */
+    fun signOut() {
+        connection.stop()
+        scope.coroutineContext.cancelChildren()
+        typingExpiry.values.forEach { it.cancel() }
+        typingExpiry.clear()
+        started = false
+        lastTypingSentAt = 0L
+        _state.value = BridgeChatState()
+    }
+
     fun selectChannel(channelId: Int) {
         if (_state.value.selectedChannelId == channelId) return
         _state.update {
-            it.copy(selectedChannelId = channelId, messages = emptyList(), loadingHistory = true)
+            it.copy(selectedChannelId = channelId, messages = emptyList(), loadingHistory = true, replyingTo = null)
         }
         scope.launch {
             connection.send(JoinChannelCommand(channelId))
@@ -165,7 +213,22 @@ class BridgeRepository @Inject constructor(
         val channelId = _state.value.selectedChannelId ?: return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        scope.launch { connection.send(SendTextCommand(channelId, trimmed)) }
+        val replyTo = _state.value.replyingTo?.id
+        _state.update { it.copy(replyingTo = null) }
+        scope.launch { connection.send(SendTextCommand(channelId, trimmed, replyTo)) }
+    }
+
+    /**
+     * Marks [line] as the message the next send replies to. Only lines with a real Lexicon
+     * id can be replied to; a relay that could not be stored has nothing to point at.
+     */
+    fun startReply(line: ChatLine) {
+        if (!canReplyTo(line)) return
+        _state.update { it.copy(replyingTo = line) }
+    }
+
+    fun cancelReply() {
+        _state.update { it.copy(replyingTo = null) }
     }
 
     /** Pages further back, using the oldest held message as the cursor. */
@@ -302,11 +365,90 @@ class BridgeRepository @Inject constructor(
         _state.update { it.copy(notice = null) }
     }
 
+    // ── game servers ─────────────────────────────────────────────────────────
+    //
+    // Every action is checked again by the bridge (Lexicon permissions) and by the
+    // manager on GTW; nothing here decides who may do what.
+
+    fun refreshGames() {
+        scope.launch { connection.send(GamesListCommand()) }
+    }
+
+    fun startGameServer(serverId: String) = sendGames(GamesServerCommand(GamesServerCommand.Action.START, serverId))
+
+    fun stopGameServer(serverId: String) = sendGames(GamesServerCommand(GamesServerCommand.Action.STOP, serverId))
+
+    fun restartGameServer(serverId: String) =
+        sendGames(GamesServerCommand(GamesServerCommand.Action.RESTART, serverId))
+
+    fun requestGameRestart(serverId: String, reason: String) =
+        sendGames(GamesRequestRestartCommand(serverId, reason))
+
+    fun decideGameRestart(requestId: String, approve: Boolean) =
+        sendGames(GamesDecideRequestCommand(requestId, approve))
+
+    fun openGameConsole(serverId: String) {
+        _state.update {
+            it.copy(games = it.games.copy(consoleServerId = serverId, consoleText = "", consoleLoading = true))
+        }
+        scope.launch { connection.send(GamesLogsCommand(serverId)) }
+    }
+
+    fun closeGameConsole() {
+        _state.update {
+            it.copy(games = it.games.copy(consoleServerId = null, consoleText = "", consoleLoading = false))
+        }
+    }
+
+    fun sendGameConsoleCommand(command: String) {
+        val serverId = _state.value.games.consoleServerId ?: return
+        val trimmed = command.trim()
+        if (trimmed.isEmpty()) return
+        // Echoed straight away, as the web console does, so the output that follows
+        // has its prompt above it.
+        appendConsole(serverId, "> $trimmed")
+        scope.launch { connection.send(GamesConsoleCommand(serverId, trimmed)) }
+    }
+
+    fun dismissGamesResult() {
+        _state.update { it.copy(games = it.games.copy(result = null)) }
+    }
+
+    fun dismissGamesNotice() {
+        _state.update { it.copy(games = it.games.copy(notice = null)) }
+    }
+
+    private fun sendGames(command: BridgeCommand) {
+        _state.update { it.copy(games = it.games.copy(result = null)) }
+        scope.launch { connection.send(command) }
+    }
+
+    /** Only for the console that is open; a late answer for one just closed is dropped. */
+    private fun appendConsole(serverId: String, text: String) {
+        _state.update { current ->
+            if (current.games.consoleServerId != serverId) return@update current
+            val joined = if (current.games.consoleText.isEmpty()) text else current.games.consoleText + "\n" + text
+            current.copy(games = current.games.copy(consoleText = boundConsole(joined)))
+        }
+    }
+
+    /**
+     * Keeps the console to its last [CONSOLE_MAX_LINES]. A log is up to a thousand lines
+     * and every command adds more, and this string is re-rendered on each change.
+     */
+    private fun boundConsole(text: String): String {
+        val lines = text.split('\n')
+        return if (lines.size <= CONSOLE_MAX_LINES) text else lines.takeLast(CONSOLE_MAX_LINES).joinToString("\n")
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     private suspend fun reestablish() {
         connection.send(GetNotificationsCommand())
         connection.send(DmConversationsCommand())
+        // The web client asks on every sign-in; the bridge only pushes status when
+        // something changes, so a fresh socket would otherwise sit on stale state.
+        connection.send(GamesListCommand())
         val channelId = _state.value.selectedChannelId ?: return
         connection.send(JoinChannelCommand(channelId))
         connection.send(GetHistoryCommand(channelId))
@@ -420,6 +562,29 @@ class BridgeRepository @Inject constructor(
             // and move on rather than failing a specific call.
             is ErrorEvent -> _state.update { it.copy(notice = event.message) }
 
+            is GamesStatusEvent -> _state.update { it.copy(games = it.games.copy(status = event)) }
+
+            is GamesActionResultEvent -> _state.update {
+                it.copy(games = it.games.copy(result = GamesResult(event.text, event.ok)))
+            }
+
+            is GamesNoticeEvent -> _state.update { it.copy(games = it.games.copy(notice = event.text)) }
+
+            is GamesLogsEvent -> _state.update { current ->
+                if (current.games.consoleServerId != event.serverId) return@update current
+                current.copy(
+                    games = current.games.copy(
+                        consoleText = boundConsole(event.lines.joinToString("\n")),
+                        consoleLoading = false,
+                    ),
+                )
+            }
+
+            is GamesCommandResultEvent -> appendConsole(
+                event.serverId,
+                if (event.ok) event.output?.takeIf { it.isNotBlank() } ?: "(sent)" else "error: " + (event.error ?: "failed"),
+            )
+
             else -> Unit
         }
     }
@@ -521,7 +686,8 @@ class BridgeRepository @Inject constructor(
 
         _state.update { current ->
             val existing = current.messages.associateBy { it.id }
-            val merged = (lines.filterNot { existing.containsKey(it.id) } + current.messages)
+            val incoming = lines.filterNot { existing.containsKey(it.id) }
+            val merged = (incoming + withoutIdlessCopies(current.messages, incoming))
                 .sortedBy { it.timestamp }
             current.copy(messages = merged, loadingHistory = false)
         }
@@ -538,6 +704,7 @@ class BridgeRepository @Inject constructor(
             timestamp = event.timestamp,
             origin = event.origin,
             replyToId = event.replyToId,
+            replyTo = event.replyTo,
         )
         _state.update { current ->
             if (current.messages.any { it.id == line.id }) current
@@ -637,6 +804,24 @@ private const val TAG = "BridgeRepository"
 private const val TYPING_THROTTLE_MS = 3_000L
 private const val TYPING_EXPIRE_MS = 8_000L
 
+/** Only a line with a real Lexicon id (all digits) can be the target of a reply. */
+internal fun canReplyTo(line: ChatLine): Boolean = line.id.isNotEmpty() && line.id.all { it.isDigit() }
+
+/**
+ * Drops live lines that had no id (the bridge could not store them) once history brings the
+ * same message back with one, so it is not shown twice. Matched on author and text, once per
+ * history line.
+ */
+internal fun withoutIdlessCopies(current: List<ChatLine>, incoming: List<ChatLine>): List<ChatLine> {
+    val pending = incoming.groupingBy { it.username to it.text }.eachCount().toMutableMap()
+    return current.filterNot { line ->
+        if (canReplyTo(line)) return@filterNot false
+        val key = line.username to line.text
+        val n = pending[key] ?: 0
+        if (n <= 0) false else { pending[key] = n - 1; true }
+    }
+}
+
 private fun BridgeMessage.toChatLine() = ChatLine(
     id = id,
     username = username,
@@ -646,4 +831,5 @@ private fun BridgeMessage.toChatLine() = ChatLine(
     isPinned = isPinned,
     attachment = attachment,
     replyToId = replyToId,
+    replyTo = replyTo,
 )

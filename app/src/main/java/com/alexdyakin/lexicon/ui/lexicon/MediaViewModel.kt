@@ -38,7 +38,7 @@ data class MediaUiState(
      * Filtering and search are local — the library is small enough and it feels instant.
      *
      * `by lazy`, not a `get()`. As a computed getter this re-ran both filters on **every**
-     * read, and `MediaLibraryScreen` reads it twice per composition while the 500ms position
+     * read, and the library screen read it twice per composition while the 500ms position
      * tick was recomposing the whole screen twice a second — two 200-element double-filter
      * passes a tick. The state object is immutable, so computing once per instance is correct.
      */

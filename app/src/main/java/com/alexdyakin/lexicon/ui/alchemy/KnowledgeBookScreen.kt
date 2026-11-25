@@ -1,5 +1,8 @@
 package com.alexdyakin.lexicon.ui.alchemy
 
+import com.alexdyakin.lexicon.ui.components.ErrorBox
+import com.alexdyakin.lexicon.data.userMessage
+import com.alexdyakin.lexicon.data.attempt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -38,15 +40,22 @@ import javax.inject.Inject
 data class KnowledgeUiState(val loading: Boolean = true, val entries: List<KnowledgeEntry> = emptyList(), val error: String? = null)
 @HiltViewModel class KnowledgeBookViewModel @Inject constructor(private val api: AlchemyApi, private val tokenStore: TokenStore) : ViewModel() {
     private val _state = MutableStateFlow(KnowledgeUiState()); val state: StateFlow<KnowledgeUiState> = _state.asStateFlow()
-    init { viewModelScope.launch { try { _state.value = KnowledgeUiState(false, api.knowledge(tokenStore.userId)) } catch (e: Exception) { _state.value = KnowledgeUiState(false, error = e.message ?: "Could not load knowledge.") } } }
+    init { load() }
+    fun load() {
+        viewModelScope.launch {
+            _state.value = KnowledgeUiState(loading = true)
+            _state.value = attempt { api.knowledge(tokenStore.userId) }.fold(
+                onSuccess = { KnowledgeUiState(false, it) },
+                onFailure = { KnowledgeUiState(false, error = it.userMessage("Couldn't load your knowledge book.")) },
+            )
+        }
+    }
 }
 @Composable fun KnowledgeBookScreen(onBack: () -> Unit, viewModel: KnowledgeBookViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     ScreenScaffold("Knowledge book", onBack) { padding -> when {
         state.loading -> LoadingBox(padding)
-        state.error != null -> Column(Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.Center) {
-            Text(state.error!!, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
-        }
+        state.error != null -> ErrorBox(state.error!!, viewModel::load, padding)
         state.entries.isEmpty() -> Column(Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.Center) {
             Text("Discover effects by eating ingredients and brewing potions.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 20.dp))
         }
@@ -64,7 +73,8 @@ data class KnowledgeUiState(val loading: Boolean = true, val entries: List<Knowl
                         Text(
                             entry.ingredientName,
                             style = MaterialTheme.typography.titleMedium,
-                            color = Color(0xFF1E4B8F),
+                            // Was a dark navy, about 2:1 against the card.
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
                         )
                         if (entry.effects.isEmpty()) {

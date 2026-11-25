@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.data
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -20,6 +22,10 @@ sealed interface ApiResult<out T> {
 
 suspend inline fun <T> safeApiCall(crossinline block: suspend () -> T): ApiResult<T> = try {
     ApiResult.Success(block())
+} catch (e: CancellationException) {
+    // The caller's scope is going away (screen left). Swallowing this as a Failure kept
+    // the coroutine running and writing an error into state nobody was watching.
+    throw e
 } catch (e: HttpException) {
     when (e.code()) {
         401, 403 -> ApiResult.Unauthorized
@@ -28,5 +34,7 @@ suspend inline fun <T> safeApiCall(crossinline block: suspend () -> T): ApiResul
 } catch (e: IOException) {
     ApiResult.Failure("Can't reach the server. Check your connection.")
 } catch (e: Exception) {
-    ApiResult.Failure(e.message ?: "Something went wrong.")
+    // e.message is developer text (a serializer complaint, a null check); keep it in logcat.
+    Log.w("Lexicon", "API call failed", e)
+    ApiResult.Failure("Something went wrong. Please try again.")
 }

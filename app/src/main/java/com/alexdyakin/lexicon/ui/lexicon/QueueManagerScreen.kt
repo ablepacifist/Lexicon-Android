@@ -3,26 +3,29 @@ package com.alexdyakin.lexicon.ui.lexicon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,12 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.alexdyakin.lexicon.R
 import com.alexdyakin.lexicon.data.ApiResult
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.LiveStreamQueueItem
@@ -52,7 +54,20 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.di.SseOkHttp
 import com.alexdyakin.lexicon.data.safeApiCall
+import com.alexdyakin.lexicon.ui.components.ActionRow
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.LexIconButton
+import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.components.ListRow
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import com.alexdyakin.lexicon.ui.components.SectionHeader
+import com.alexdyakin.lexicon.ui.components.SplitActions
+import com.alexdyakin.lexicon.ui.theme.Elevation
+import com.alexdyakin.lexicon.ui.theme.Radii
+import com.alexdyakin.lexicon.ui.theme.Sizes
+import com.alexdyakin.lexicon.ui.theme.Spacing
+import com.alexdyakin.lexicon.ui.theme.Status
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -82,9 +97,9 @@ private const val QM_RECONNECT_MS = 3_000L
 private const val QM_RECONNECT_MAX_MS = 60_000L
 
 enum class QueueFilter(val label: String, val mediaType: String?) {
-    ALL("🎯 All", null),
-    MUSIC("🎵 Music", "MUSIC"),
-    VIDEO("🎬 Video", "VIDEO"),
+    ALL("All", null),
+    MUSIC("Music", "MUSIC"),
+    VIDEO("Video", "VIDEO"),
 }
 
 data class QueueManagerUiState(
@@ -287,156 +302,171 @@ fun QueueManagerScreen(
     }
 
     ScreenScaffold(
-        title = if (isMusic) "🎵 Queue Manager" else "🎬 Queue Manager",
+        title = "Queue Manager",
         onBack = onBack,
+        gutter = Spacing.gutter,
+        // Was the text "● Connected" / "○ Connecting..." in the actions slot — two Unicode
+        // bullets doing the work of a status light, in a slot the title has to share.
         actions = {
-            Text(
-                if (state.connected) "● Connected" else "○ Connecting...",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 12.dp),
+            Icon(
+                if (state.connected) Icons.Filled.CloudDone else Icons.Filled.CloudOff,
+                contentDescription = if (state.connected) "Connected" else "Connecting",
+                tint = if (state.connected) Status.ok else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = Spacing.md).size(Sizes.icon),
             )
         },
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             // ── Channel tabs + stream link ───────────────────────────────────
+            // Two chips and a button, each carrying an emoji, came to about 372dp of fixed
+            // children in the 328dp a 360dp phone has. A FlowRow wraps the stream button under
+            // the chips instead of clipping it.
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilterChip(
+                ActionRow {
+                    LexChip(
+                        label = "Music",
                         selected = isMusic,
                         onClick = { viewModel.setChannel("music") },
-                        label = { Text("🎵 Music") },
+                        leadingIcon = Icons.Filled.MusicNote,
                     )
-                    FilterChip(
+                    LexChip(
+                        label = "Video",
                         selected = !isMusic,
                         onClick = { viewModel.setChannel("video") },
-                        label = { Text("🎬 Video") },
+                        leadingIcon = Icons.Filled.Movie,
                     )
-                    Spacer(Modifier.width(4.dp))
-                    OutlinedButton(onClick = { onOpenStream(state.channel) }) {
-                        Text(if (isMusic) "📡 Music Stream" else "📡 Video Stream")
-                    }
+                    LexButton(
+                        text = if (isMusic) "Music stream" else "Video stream",
+                        onClick = { onOpenStream(state.channel) },
+                        icon = Icons.Filled.Podcasts,
+                    )
                 }
             }
 
             state.error?.let { message ->
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                        shape = Radii.card,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                            TextButton(onClick = viewModel::dismissError) { Text("✕") }
+                        ListRow(
+                            modifier = Modifier.padding(
+                                start = Spacing.md,
+                                end = Spacing.sm,
+                                top = Spacing.sm,
+                                bottom = Spacing.sm,
+                            ),
+                            actionSlotWidth = Sizes.touch,
+                            action = {
+                                LexIconButton(
+                                    icon = Icons.Filled.Close,
+                                    contentDescription = "Dismiss error",
+                                    onClick = viewModel::dismissError,
+                                )
+                            },
+                        ) {
+                            Text(
+                                message,
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
                         }
                     }
                 }
             }
 
             // ── Panel 1: Live Stream Queue ───────────────────────────────────
+            item { SectionHeader("Live Stream Queue") }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Live Stream Queue",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = { showPlaylists = true }, modifier = Modifier.weight(1f)) {
-                        Text("📋 Add Playlist")
-                    }
-                    Button(onClick = viewModel::skip, enabled = !state.saving, modifier = Modifier.weight(1f)) {
-                        Text("⏭ Vote Skip")
-                    }
-                }
+                SplitActions(
+                    secondary = {
+                        LexButton(
+                            text = "Add playlist",
+                            onClick = { showPlaylists = true },
+                            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    primary = {
+                        LexButton(
+                            text = "Vote skip",
+                            onClick = viewModel::skip,
+                            tone = LexTone.Primary,
+                            icon = Icons.Filled.SkipNext,
+                            enabled = !state.saving,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                )
             }
 
             state.currentMedia?.let { media ->
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = Radii.card,
+                        elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                "Now Playing",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(media.displayTitle, style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                if (media.mediaType.equals("VIDEO", true)) "🎬 Video" else "🎵 Music",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    "Up Next (${state.upNext.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-
-            when {
-                state.loading -> item { Text("Loading queue...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                state.upNext.isEmpty() -> item {
-                    Text(
-                        "Queue is empty — random media will auto-play",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                else -> itemsIndexed(state.upNext, key = { _, item -> "q-${item.id}" }) { index, item ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("${index + 1}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(10.dp))
-                            Text(if (item.mediaFile?.mediaType.equals("VIDEO", true)) "🎬" else "🎵")
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                item.mediaFile?.displayTitle ?: "Media #${item.mediaFileId}",
-                                Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            if (item.addedBy == viewModel.userId) {
-                                TextButton(onClick = { viewModel.remove(item) }, enabled = !state.saving) { Text("✕") }
+                        ListRow(
+                            modifier = Modifier.padding(Spacing.md),
+                            actionSlotWidth = Sizes.icon,
+                            action = {
+                                Icon(
+                                    kindIcon(media.mediaType),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(Sizes.icon),
+                                )
+                            },
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Now playing",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    media.displayTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
                 }
             }
 
+            item { SectionHeader("Up next (${state.upNext.size})") }
+
+            when {
+                state.loading -> item { Hint("Loading queue...") }
+                state.upNext.isEmpty() ->
+                    item { Hint("Queue is empty — random media will auto-play") }
+                else -> itemsIndexed(state.upNext, key = { _, item -> "q-${item.id}" }) { index, item ->
+                    QueueItemRow(
+                        position = index + 1,
+                        title = item.mediaFile?.displayTitle ?: "Media #${item.mediaFileId}",
+                        mediaType = item.mediaFile?.mediaType,
+                        removable = item.addedBy == viewModel.userId,
+                        saving = state.saving,
+                        onRemove = { viewModel.remove(item) },
+                    )
+                }
+            }
+
             // ── Panel 2: Browse Media ────────────────────────────────────────
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-                    Text(
-                        "Browse Media",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.weight(1f),
-                    )
+                SectionHeader("Browse media") {
                     Text(
                         "${state.eligible.size} available",
                         style = MaterialTheme.typography.labelSmall,
@@ -448,75 +478,113 @@ fun QueueManagerScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search by title or description...") },
+                    label = { Text("Search by title or description", maxLines = 1) },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QueueFilter.entries.forEach { option ->
-                        FilterChip(
-                            selected = filter == option,
-                            onClick = { filter = option },
-                            label = { Text(option.label, style = MaterialTheme.typography.labelSmall) },
-                        )
+                Column {
+                    FieldLabel("Filter")
+                    ActionRow {
+                        QueueFilter.entries.forEach { option ->
+                            LexChip(
+                                label = option.label,
+                                selected = filter == option,
+                                onClick = { filter = option },
+                            )
+                        }
                     }
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sort:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    QueueSort.entries.forEach { option ->
-                        FilterChip(
-                            selected = sort == option,
-                            onClick = { sort = option },
-                            label = { Text(option.label, style = MaterialTheme.typography.labelSmall) },
-                        )
+                // "Sort:" plus every sort chip in one Row needed about 316dp of the 328dp
+                // available, so the last chip clipped at 360dp and two of them did at 320dp.
+                Column {
+                    FieldLabel("Sort")
+                    ActionRow {
+                        QueueSort.entries.forEach { option ->
+                            LexChip(
+                                label = option.label,
+                                selected = sort == option,
+                                onClick = { sort = option },
+                            )
+                        }
                     }
                 }
             }
-            item {
-                Text(
-                    "${filtered.size} of ${state.eligible.size} items",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            item { Hint("${filtered.size} of ${state.eligible.size} items") }
 
             if (filtered.isEmpty()) {
-                item {
-                    Text(
-                        "No matching media",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                item { Hint("No matching media") }
             }
 
             items(filtered, key = { "m-${it.id}" }) { media ->
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = Radii.card,
+                    elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (media.mediaType.equals("VIDEO", true)) "🎬" else "🎵")
-                        Spacer(Modifier.width(10.dp))
+                    ListRow(
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        action = {
+                            LexButton(
+                                text = "Add",
+                                onClick = { viewModel.add(media) },
+                                icon = Icons.Filled.Add,
+                                enabled = !state.saving,
+                            )
+                        },
+                    ) {
+                        Icon(
+                            kindIcon(media.mediaType),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(Sizes.icon),
+                        )
                         Column(Modifier.weight(1f)) {
-                            Text(media.displayTitle, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                media.displayTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                             if (media.description.isNotBlank()) {
                                 Text(
                                     media.description,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        TextButton(onClick = { viewModel.add(media) }, enabled = !state.saving) { Text("+ Add") }
                     }
                 }
             }
         }
     }
+}
+
+/** The label above a group of chips, so "Filter" and "Sort" read the same way. */
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = Spacing.xs),
+    )
+}
+
+/** A line of secondary copy — counts, empty states, loading notes. */
+@Composable
+private fun Hint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

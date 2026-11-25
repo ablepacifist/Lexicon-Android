@@ -1,17 +1,13 @@
 package com.alexdyakin.lexicon.ui.lexicon
 
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,30 +15,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -57,8 +52,19 @@ import com.alexdyakin.lexicon.data.api.MediaApi
 import com.alexdyakin.lexicon.data.api.PlaylistApi
 import com.alexdyakin.lexicon.data.api.TorrentApi
 import com.alexdyakin.lexicon.data.safeApiCall
+import com.alexdyakin.lexicon.ui.components.ActionRow
 import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.LexChip
+import com.alexdyakin.lexicon.ui.components.LexIconButton
+import com.alexdyakin.lexicon.ui.components.LexTone
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
+import com.alexdyakin.lexicon.ui.components.SplitActions
+import com.alexdyakin.lexicon.ui.components.SwitchRow
+import com.alexdyakin.lexicon.ui.theme.Elevation
+import com.alexdyakin.lexicon.ui.theme.Radii
+import com.alexdyakin.lexicon.ui.theme.Spacing
+import com.alexdyakin.lexicon.ui.theme.Status
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +75,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import com.alexdyakin.lexicon.data.enqueueMediaDownload
+import com.alexdyakin.lexicon.ui.components.ConfirmDialog
+import com.alexdyakin.lexicon.data.di.ForUploads
+import com.alexdyakin.lexicon.data.fileNameFor
+import com.alexdyakin.lexicon.data.uploadBody
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
@@ -101,6 +116,8 @@ data class MediaUploadUiState(
 @HiltViewModel
 class MediaUploadViewModel @Inject constructor(
     private val api: MediaApi,
+    @ForUploads private val uploadApi: MediaApi,
+    @ApplicationContext private val context: Context,
     private val playlistApi: PlaylistApi,
     private val torrentApi: TorrentApi,
     private val tokenStore: TokenStore,
@@ -111,9 +128,19 @@ class MediaUploadViewModel @Inject constructor(
 
     val authToken: String get() = tokenStore.token.orEmpty()
 
-    fun file(bytes: ByteArray, filename: String, contentType: String?, title: String, description: String, isPublic: Boolean, type: String) = send {
-        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody(contentType?.toMediaTypeOrNull()))
-        api.upload(part, tokenStore.userId.toString().toRequestBody(), title.toRequestBody(), description.toRequestBody(), isPublic.toString().toRequestBody(), type.toRequestBody())
+    /**
+     * Edit and Delete belong to the uploader; the server refuses anyone else. They were offered
+     * on every public file, so a tap ended in "Only the uploader can delete this media."
+     */
+    fun canManage(media: MediaFile): Boolean =
+        _state.value.browseSource == BrowseSource.MY || media.uploadedBy == tokenStore.userId
+
+    /** Streams the picked file; see [com.alexdyakin.lexicon.data.UriRequestBody]. */
+    fun file(uri: Uri, title: String, description: String, isPublic: Boolean, type: String) = send {
+        val resolver = context.contentResolver
+        val filename = withContext(Dispatchers.IO) { resolver.fileNameFor(uri, "media") }
+        val part = MultipartBody.Part.createFormData("file", filename, resolver.uploadBody(uri))
+        uploadApi.upload(part, tokenStore.userId.toString().toRequestBody(), title.toRequestBody(), description.toRequestBody(), isPublic.toString().toRequestBody(), type.toRequestBody())
     }
 
     fun link(url: String, title: String, description: String, isPublic: Boolean, type: String, downloadType: String) = send { api.uploadFromUrl(url, tokenStore.userId, title, description, isPublic, type, downloadType) }
@@ -212,8 +239,14 @@ class MediaUploadViewModel @Inject constructor(
         }
     }
 
-    fun submitTorrentFile(bytes: ByteArray, filename: String, title: String, isPublic: Boolean) =
+    fun submitTorrentFile(uri: Uri, title: String, isPublic: Boolean) =
         submitTorrent {
+            // A .torrent is a few kilobytes, so reading it whole is fine, but not on the main thread.
+            val (filename, bytes) = withContext(Dispatchers.IO) {
+                val resolver = context.contentResolver
+                resolver.fileNameFor(uri, "upload.torrent") to
+                    (resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IOException("Could not read that file."))
+            }
             val part = MultipartBody.Part.createFormData(
                 "file", filename, bytes.toRequestBody("application/x-bittorrent".toMediaTypeOrNull()))
             torrentApi.submitFile(
@@ -307,7 +340,7 @@ class MediaUploadViewModel @Inject constructor(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
@@ -332,6 +365,8 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
     var searchQuery by remember { mutableStateOf("") }
     var filterType by remember { mutableStateOf("ALL") }
     var editTarget by remember { mutableStateOf<MediaFile?>(null) }
+    var deleteTarget by remember { mutableStateOf<MediaFile?>(null) }
+    var removeTorrentTarget by remember { mutableStateOf<TorrentProgress?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected -> uri = selected }
 
@@ -346,9 +381,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         if (selected != null) {
             torrentUrl = ""
             if (torrentTitle.isBlank()) {
-                torrentTitle = (selected.lastPathSegment ?: "")
-                    .substringAfterLast('/')
-                    .removeSuffix(".torrent")
+                torrentTitle = context.contentResolver.fileNameFor(selected, "").removeSuffix(".torrent")
             }
         }
     }
@@ -373,256 +406,267 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         else state.mediaFiles.filter { (it.mediaType.ifBlank { "OTHER" }).equals(filterType, ignoreCase = true) }
     }
 
-    if (editTarget != null) {
+    deleteTarget?.let { target ->
+        ConfirmDialog(
+            title = "Delete \"${target.displayTitle}\"?",
+            message = "The file is removed from the server for everyone. This cannot be undone.",
+            confirmLabel = "Delete",
+            onConfirm = { viewModel.deleteMedia(target.id) },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+    removeTorrentTarget?.let { target ->
+        ConfirmDialog(
+            title = "Remove this download?",
+            message = "The torrent stops and leaves the list.",
+            confirmLabel = "Remove",
+            onConfirm = { viewModel.removeTorrent(target.infoHash) },
+            onDismiss = { removeTorrentTarget = null },
+        )
+    }
+
+    editTarget?.let { target ->
         EditMediaDialog(
-            media = editTarget!!,
+            media = target,
             saving = state.saving,
             onDismiss = { editTarget = null },
             onSave = { newTitle, newDescription, newPublic ->
-                viewModel.updateMedia(editTarget!!.id, newTitle.trim(), newDescription.trim(), newPublic)
+                viewModel.updateMedia(target.id, newTitle.trim(), newDescription.trim(), newPublic)
                 editTarget = null
             },
         )
     }
 
-    ScreenScaffold("Add media", onBack) { padding ->
+    ScreenScaffold("Add media", onBack, gutter = Spacing.gutter) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Upload & Download", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Native Android media management. Text contrast has been tuned for readability.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                FormCard {
+                    Text(
+                        "Upload & download",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    // Was "Native Android media management. Text contrast has been tuned for
+                    // readability." — a note to the developer, shown to the user.
+                    Text(
+                        "Add a file from this phone, pull one from a link or a torrent, or " +
+                            "import a whole playlist.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
             item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("FILE", "LINK", "TORRENT", "PLAYLIST", "BROWSE").forEach { option ->
-                        FilterChip(
-                            selected = mode == option,
-                            onClick = {
-                                mode = option
-                                viewModel.clearMessage()
-                            },
-                            label = { Text(option.lowercase().replaceFirstChar { it.uppercase() }) },
-                        )
-                    }
-                }
+                ChoiceChips(
+                    options = listOf("FILE", "LINK", "TORRENT", "PLAYLIST", "BROWSE"),
+                    selected = mode,
+                    onSelect = {
+                        mode = it
+                        viewModel.clearMessage()
+                    },
+                )
             }
 
             if (mode == "FILE" || mode == "LINK") {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (mode == "FILE") {
-                                Button(onClick = { picker.launch(arrayOf("audio/*", "video/*")) }) {
-                                    Text(if (uri == null) "Choose audio or video" else "Selected: ${uri?.lastPathSegment ?: "file"}")
-                                }
-                            } else {
-                                OutlinedTextField(
-                                    value = url,
-                                    onValueChange = { url = it },
-                                    label = { Text("YouTube or media URL") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
+                    FormCard {
+                        if (mode == "FILE") {
+                            LexButton(
+                                text = if (uri == null) {
+                                    "Choose audio or video"
+                                } else {
+                                    "Selected: ${uri?.let { context.contentResolver.fileNameFor(it, "file") } ?: "file"}"
+                                },
+                                onClick = { picker.launch(arrayOf("audio/*", "video/*")) },
+                                tone = LexTone.Primary,
+                                icon = Icons.Filled.AttachFile,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            UploadField(url, { url = it }, "YouTube or media URL")
+                        }
 
-                            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth())
+                        UploadField(title, { title = it }, "Title", singleLine = true)
+                        UploadField(description, { description = it }, "Description")
 
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("MUSIC", "AUDIOBOOK", "VIDEO", "OTHER").forEach { option ->
-                                    FilterChip(
-                                        selected = mediaType == option,
-                                        onClick = { mediaType = option },
-                                        label = { Text(option.lowercase().replaceFirstChar { it.uppercase() }) },
-                                    )
-                                }
-                            }
+                        ChoiceChips(
+                            options = listOf("MUSIC", "AUDIOBOOK", "VIDEO", "OTHER"),
+                            selected = mediaType,
+                            onSelect = { mediaType = it },
+                        )
 
-                            if (mode == "LINK") {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("AUDIO_ONLY", "VIDEO").forEach { option ->
-                                        FilterChip(
-                                            selected = downloadType == option,
-                                            onClick = {
-                                                downloadType = option
-                                                mediaType = if (option == "VIDEO") "VIDEO" else "MUSIC"
-                                            },
-                                            label = { Text(option.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }) },
+                        if (mode == "LINK") {
+                            ChoiceChips(
+                                options = listOf("AUDIO_ONLY", "VIDEO"),
+                                selected = downloadType,
+                                onSelect = { option ->
+                                    downloadType = option
+                                    mediaType = if (option == "VIDEO") "VIDEO" else "MUSIC"
+                                },
+                            )
+                        }
+
+                        SwitchRow("Public", public, onCheckedChange = { public = it })
+
+                        LexButton(
+                            text = when {
+                                state.saving -> "Working..."
+                                mode == "LINK" -> "Download & add"
+                                else -> "Upload file"
+                            },
+                            onClick = {
+                                if (mode == "LINK") {
+                                    viewModel.link(url, title, description, public, mediaType, downloadType)
+                                } else {
+                                    uri?.let { selected ->
+                                        viewModel.file(
+                                            uri = selected,
+                                            title = title,
+                                            description = description,
+                                            isPublic = public,
+                                            type = mediaType,
                                         )
                                     }
                                 }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Public", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                                Switch(checked = public, onCheckedChange = { public = it })
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (mode == "LINK") {
-                                        viewModel.link(url, title, description, public, mediaType, downloadType)
-                                    } else {
-                                        uri?.let { selected ->
-                                            val bytes = context.contentResolver.openInputStream(selected)?.use { it.readBytes() }
-                                            if (bytes != null) {
-                                                viewModel.file(
-                                                    bytes = bytes,
-                                                    filename = selected.lastPathSegment?.substringAfterLast('/') ?: "media",
-                                                    contentType = context.contentResolver.getType(selected),
-                                                    title = title,
-                                                    description = description,
-                                                    isPublic = public,
-                                                    type = mediaType,
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = !state.saving && title.isNotBlank() && ((mode == "LINK" && url.isNotBlank()) || (mode == "FILE" && uri != null)),
-                            ) {
-                                Text(if (state.saving) "Working..." else if (mode == "LINK") "Download & add" else "Upload file")
-                            }
-                        }
+                            },
+                            tone = LexTone.Primary,
+                            enabled = !state.saving && title.isNotBlank() &&
+                                ((mode == "LINK" && url.isNotBlank()) || (mode == "FILE" && uri != null)),
+                            loading = state.saving,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
 
             if (mode == "TORRENT") {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Torrent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    FormCard {
+                        Text(
+                            "Torrent",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "The Lexicon machine downloads this over its VPN and adds only the " +
+                                ".mp3 and .mp4 files — nothing else in the torrent is downloaded. " +
+                                "Deleting an added file later also removes it from the torrent.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        if (state.torrentReady == false) {
                             Text(
-                                "The Lexicon machine downloads this over its VPN and adds only the .mp3 and " +
-                                    ".mp4 files - nothing else in the torrent is downloaded. Deleting an added " +
-                                    "file later also removes it from the torrent.",
+                                state.torrentBlockedReason.ifBlank { "Torrent downloads are unavailable." },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LexButton(
+                                text = "Choose .torrent",
+                                onClick = {
+                                    torrentPicker.launch(
+                                        arrayOf(
+                                            "application/x-bittorrent",
+                                            "application/octet-stream",
+                                            "*/*",
+                                        )
+                                    )
+                                },
+                                icon = Icons.Filled.AttachFile,
+                            )
+                            // Weighted, so the filename takes what is left of the row rather than
+                            // being measured at its full length and pushing the button out.
+                            Text(
+                                torrentUri?.let { context.contentResolver.fileNameFor(it, "file") } ?: "No file chosen",
+                                Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
-
-                            if (state.torrentReady == false) {
-                                Text(
-                                    state.torrentBlockedReason.ifBlank { "Torrent downloads are unavailable." },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Button(onClick = {
-                                    torrentPicker.launch(arrayOf("application/x-bittorrent", "application/octet-stream", "*/*"))
-                                }) {
-                                    Text("Choose .torrent")
-                                }
-                                Text(
-                                    torrentUri?.lastPathSegment?.substringAfterLast('/') ?: "No file chosen",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-
-                            OutlinedTextField(
-                                value = torrentUrl,
-                                onValueChange = {
-                                    torrentUrl = it
-                                    if (it.isNotBlank()) torrentUri = null
-                                },
-                                label = { Text("Or a magnet link / .torrent URL") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            OutlinedTextField(
-                                value = torrentTitle,
-                                onValueChange = { torrentTitle = it },
-                                label = { Text("Name (optional)") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Public", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                                Switch(checked = torrentPublic, onCheckedChange = { torrentPublic = it })
-                            }
-
-                            Button(
-                                onClick = {
-                                    val chosen = torrentUri
-                                    if (chosen != null) {
-                                        // A .torrent is a few kilobytes, so reading it whole is fine.
-                                        val bytes = context.contentResolver.openInputStream(chosen)?.use { it.readBytes() }
-                                        if (bytes == null) {
-                                            viewModel.messageFromScreen("Could not read that file.")
-                                        } else {
-                                            viewModel.submitTorrentFile(
-                                                bytes,
-                                                chosen.lastPathSegment?.substringAfterLast('/') ?: "upload.torrent",
-                                                torrentTitle.trim(),
-                                                torrentPublic,
-                                            )
-                                            torrentUri = null
-                                            torrentTitle = ""
-                                        }
-                                    } else {
-                                        viewModel.submitTorrentUrl(torrentUrl.trim(), torrentTitle.trim(), torrentPublic)
-                                        torrentUrl = ""
-                                        torrentTitle = ""
-                                    }
-                                },
-                                enabled = !state.saving && state.torrentReady != false &&
-                                    (torrentUri != null || torrentUrl.isNotBlank()),
-                            ) {
-                                Text(if (state.saving) "Working..." else "Start download")
-                            }
                         }
+
+                        UploadField(
+                            torrentUrl,
+                            {
+                                torrentUrl = it
+                                if (it.isNotBlank()) torrentUri = null
+                            },
+                            "Or a magnet link / .torrent URL",
+                        )
+                        UploadField(torrentTitle, { torrentTitle = it }, "Name (optional)", singleLine = true)
+
+                        SwitchRow("Public", torrentPublic, onCheckedChange = { torrentPublic = it })
+
+                        LexButton(
+                            text = if (state.saving) "Working..." else "Start download",
+                            onClick = {
+                                val chosen = torrentUri
+                                if (chosen != null) {
+                                    viewModel.submitTorrentFile(chosen, torrentTitle.trim(), torrentPublic)
+                                    torrentUri = null
+                                    torrentTitle = ""
+                                } else {
+                                    viewModel.submitTorrentUrl(torrentUrl.trim(), torrentTitle.trim(), torrentPublic)
+                                    torrentUrl = ""
+                                    torrentTitle = ""
+                                }
+                            },
+                            tone = LexTone.Primary,
+                            enabled = !state.saving && state.torrentReady != false &&
+                                (torrentUri != null || torrentUrl.isNotBlank()),
+                            loading = state.saving,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
 
                 items(state.torrents, key = { it.infoHash }) { torrent ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FormCard {
+                        Text(
+                            torrent.name.ifBlank { "Torrent" },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        LinearProgressIndicator(
+                            progress = { torrent.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            torrentStatusText(torrent),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        torrent.error?.takeIf { it.isNotBlank() }?.let { error ->
                             Text(
-                                torrent.name.ifBlank { "Torrent" },
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            LinearProgressIndicator(
-                                progress = { torrent.percent / 100f },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Text(
-                                torrentStatusText(torrent),
+                                error,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.error,
                             )
-                            torrent.error?.takeIf { it.isNotBlank() }?.let { error ->
-                                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                            }
-                            OutlinedButton(onClick = { viewModel.removeTorrent(torrent.infoHash) }) {
-                                Text("Remove")
-                            }
+                        }
+                        ActionRow(horizontalAlignment = Alignment.End) {
+                            LexButton(
+                                text = "Remove",
+                                onClick = { removeTorrentTarget = torrent },
+                                tone = LexTone.Destructive,
+                                icon = Icons.Filled.Delete,
+                            )
                         }
                     }
                 }
@@ -630,128 +674,170 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
 
             if (mode == "PLAYLIST") {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedTextField(value = playlistUrl, onValueChange = { playlistUrl = it }, label = { Text("Playlist URL") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, label = { Text("Playlist name (optional)") }, modifier = Modifier.fillMaxWidth())
+                    FormCard {
+                        UploadField(playlistUrl, { playlistUrl = it }, "Playlist URL")
+                        UploadField(
+                            playlistName,
+                            { playlistName = it },
+                            "Playlist name (optional)",
+                            singleLine = true,
+                        )
 
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("AUDIO_ONLY", "VIDEO").forEach { option ->
-                                    FilterChip(
-                                        selected = playlistDownloadType == option,
-                                        onClick = {
-                                            playlistDownloadType = option
-                                            playlistMediaType = if (option == "VIDEO") "VIDEO" else "MUSIC"
-                                        },
-                                        label = { Text(option.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }) },
-                                    )
-                                }
-                            }
+                        ChoiceChips(
+                            options = listOf("AUDIO_ONLY", "VIDEO"),
+                            selected = playlistDownloadType,
+                            onSelect = { option ->
+                                playlistDownloadType = option
+                                playlistMediaType = if (option == "VIDEO") "VIDEO" else "MUSIC"
+                            },
+                        )
+                        ChoiceChips(
+                            options = listOf("MUSIC", "VIDEO", "AUDIOBOOK", "OTHER"),
+                            selected = playlistMediaType,
+                            onSelect = { playlistMediaType = it },
+                        )
 
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("MUSIC", "VIDEO", "AUDIOBOOK", "OTHER").forEach { option ->
-                                    FilterChip(
-                                        selected = playlistMediaType == option,
-                                        onClick = { playlistMediaType = option },
-                                        label = { Text(option.lowercase().replaceFirstChar { it.uppercase() }) },
-                                    )
-                                }
-                            }
+                        SwitchRow("Playlist is public", playlistPublic, onCheckedChange = { playlistPublic = it })
+                        SwitchRow("Imported media is public", mediaPublic, onCheckedChange = { mediaPublic = it })
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Playlist is public", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                                Switch(checked = playlistPublic, onCheckedChange = { playlistPublic = it })
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Imported media is public", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                                Switch(checked = mediaPublic, onCheckedChange = { mediaPublic = it })
-                            }
-
-                            Button(
-                                onClick = {
-                                    viewModel.importPlaylist(
-                                        url = playlistUrl,
-                                        playlistName = playlistName,
-                                        playlistPublic = playlistPublic,
-                                        mediaPublic = mediaPublic,
-                                        mediaType = playlistMediaType,
-                                        downloadType = playlistDownloadType,
-                                    )
-                                },
-                                enabled = !state.saving && playlistUrl.isNotBlank(),
-                            ) {
-                                Text(if (state.saving) "Starting..." else "Import playlist")
-                            }
-                        }
+                        LexButton(
+                            text = if (state.saving) "Starting..." else "Import playlist",
+                            onClick = {
+                                viewModel.importPlaylist(
+                                    url = playlistUrl,
+                                    playlistName = playlistName,
+                                    playlistPublic = playlistPublic,
+                                    mediaPublic = mediaPublic,
+                                    mediaType = playlistMediaType,
+                                    downloadType = playlistDownloadType,
+                                )
+                            },
+                            tone = LexTone.Primary,
+                            enabled = !state.saving && playlistUrl.isNotBlank(),
+                            loading = state.saving,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
 
             if (mode == "BROWSE") {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = viewModel::loadMyMedia, enabled = !state.loading) { Text("My files") }
-                                OutlinedButton(onClick = viewModel::loadPublicMedia, enabled = !state.loading) { Text("Public") }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    label = { Text("Search title or description") },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
+                    FormCard {
+                        // Two peer sources were a filled button and an outlined one, which read
+                        // as "do this" and "or maybe this". Equal weights, equal emphasis.
+                        SplitActions(
+                            secondary = {
+                                LexButton(
+                                    text = "My files",
+                                    onClick = viewModel::loadMyMedia,
+                                    enabled = !state.loading,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
-                                Button(onClick = { if (searchQuery.isNotBlank()) viewModel.searchMedia(searchQuery) }, enabled = !state.loading) { Text("Search") }
-                            }
+                            },
+                            primary = {
+                                LexButton(
+                                    text = "Public",
+                                    onClick = viewModel::loadPublicMedia,
+                                    enabled = !state.loading,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            },
+                        )
 
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("ALL", "MUSIC", "VIDEO", "AUDIOBOOK", "OTHER").forEach { option ->
-                                    FilterChip(selected = filterType == option, onClick = { filterType = option }, label = { Text(option) })
-                                }
-                            }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                label = { Text("Search title or description", maxLines = 1) },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            LexIconButton(
+                                icon = Icons.Filled.Search,
+                                contentDescription = "Search",
+                                onClick = {
+                                    if (searchQuery.isNotBlank()) viewModel.searchMedia(searchQuery)
+                                },
+                                enabled = !state.loading,
+                                tone = LexTone.Primary,
+                            )
                         }
+
+                        ChoiceChips(
+                            options = listOf("ALL", "MUSIC", "VIDEO", "AUDIOBOOK", "OTHER"),
+                            selected = filterType,
+                            onSelect = { filterType = it },
+                        )
                     }
                 }
 
                 if (state.loading) {
-                    item {
-                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
-                            Text("Loading media...", modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    item { NoticeCard("Loading media...") }
                 } else if (filtered.isEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
-                            Text("No files found for this filter.", modifier = Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    item { NoticeCard("No files found for this filter.") }
                 } else {
                     items(filtered, key = { it.id }) { media ->
                         Card(
+                            shape = Radii.card,
+                            elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .animateItem(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
                         ) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(media.displayTitle, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(media.description.ifBlank { "No description" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("${media.mediaType.ifBlank { "OTHER" }}  ·  ${"%.1f".format(media.fileSize / 1_048_576.0)} MB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(
+                                Modifier.padding(Spacing.lg),
+                                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            ) {
+                                Text(
+                                    media.displayTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    media.description.ifBlank { "No description" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${media.mediaType.ifBlank { "OTHER" }} · " +
+                                        "${"%.1f".format(media.fileSize / 1_048_576.0)} MB",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = { downloadMedia(context, media, viewModel.authToken) }) { Text("Download") }
-                                    OutlinedButton(onClick = { editTarget = media }) { Text("Edit") }
-                                    OutlinedButton(onClick = { viewModel.deleteMedia(media.id) }, enabled = !state.saving) { Text("Delete") }
+                                // Download + Edit + Delete is about 300dp of fixed buttons in the
+                                // 288dp a 320dp phone has, so Delete clipped. This wraps.
+                                ActionRow(Modifier.padding(top = Spacing.xs)) {
+                                    LexButton(
+                                        text = "Download",
+                                        onClick = { enqueueMediaDownload(context, media, viewModel.authToken) },
+                                        tone = LexTone.Primary,
+                                        icon = Icons.Filled.Download,
+                                    )
+                                    if (viewModel.canManage(media)) {
+                                        LexButton(
+                                            text = "Edit",
+                                            onClick = { editTarget = media },
+                                            icon = Icons.Filled.Edit,
+                                        )
+                                        LexButton(
+                                            text = "Delete",
+                                            onClick = { deleteTarget = media },
+                                            tone = LexTone.Destructive,
+                                            icon = Icons.Filled.Delete,
+                                            enabled = !state.saving,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -759,41 +845,103 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                 }
             }
 
-            state.message?.let { message ->
-                item {
-                    val success = !message.contains("error", ignoreCase = true) && !message.contains("failed", ignoreCase = true)
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (success) Color(0xFFDFF2E3) else Color(0xFFF9DEDC),
-                            contentColor = if (success) Color(0xFF1B5E20) else Color(0xFF7F1D1D),
-                        ),
-                    ) {
-                        Text(message, modifier = Modifier.padding(14.dp))
-                    }
-                }
-            }
-
-            item {
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    Text("Default media type: Music", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                }
-            }
+            state.message?.let { message -> item { MessageCard(message) } }
         }
     }
 }
 
-private fun downloadMedia(context: Context, media: MediaFile, token: String) {
-    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    val fileName = media.originalFilename.ifBlank { media.filename.ifBlank { "media_${media.id}" } }
-    val request = DownloadManager.Request(Uri.parse("${ApiUrls.LEXICON}api/media/${media.id}/download"))
-        .setTitle(media.displayTitle)
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-    if (token.isNotBlank()) {
-        request.addRequestHeader("Authorization", "Bearer $token")
+/** The one card every form section on this screen sits in; there were five near-copies. */
+@Composable
+private fun FormCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        shape = Radii.card,
+        elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            content = content,
+        )
     }
-    downloadManager.enqueue(request)
+}
+
+/** A plain informational card — loading and empty states. */
+@Composable
+private fun NoticeCard(text: String) {
+    Card(shape = Radii.card, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text,
+            Modifier.padding(Spacing.lg),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The result banner.
+ *
+ * It was two hardcoded pastels — `Color(0xFFDFF2E3)` on `Color(0xFF1B5E20)` for success and
+ * `Color(0xFFF9DEDC)` on `Color(0xFF7F1D1D)` for failure. Both are light-theme colours, so on a
+ * near-black screen the banner arrived as a bright mint or pink slab, the only one in the app.
+ */
+@Composable
+private fun MessageCard(message: String) {
+    val failed = message.contains("error", ignoreCase = true) ||
+        message.contains("failed", ignoreCase = true)
+    Card(
+        shape = Radii.card,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (failed) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                Status.ok.copy(alpha = 0.18f)
+            },
+            contentColor = if (failed) MaterialTheme.colorScheme.onErrorContainer else Status.ok,
+        ),
+    ) {
+        Text(message, Modifier.padding(Spacing.lg), style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * One row of mutually exclusive options.
+ *
+ * This screen built the same `FlowRow` of `FilterChip`s six times, each with its own spacing, to
+ * state six different choices. The wire values are shouty constants (`AUDIO_ONLY`), so they are
+ * title-cased for display in one place rather than at every call site.
+ */
+@Composable
+private fun ChoiceChips(options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    ActionRow {
+        options.forEach { option ->
+            LexChip(
+                label = option.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() },
+                selected = selected == option,
+                onClick = { onSelect(option) },
+            )
+        }
+    }
+}
+
+/** Every text field on this screen: full width, one shape, capped label. */
+@Composable
+private fun UploadField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    singleLine: Boolean = false,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        singleLine = singleLine,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -806,22 +954,26 @@ private fun EditMediaDialog(
     var title by remember(media.id) { mutableStateOf(media.title.ifBlank { media.displayTitle }) }
     var description by remember(media.id) { mutableStateOf(media.description) }
     var public by remember(media.id) { mutableStateOf(media.isPublic) }
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
+        shape = Radii.card,
         title = { Text("Edit media") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, singleLine = true)
-                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") })
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Public", Modifier.weight(1f))
-                    Switch(checked = public, onCheckedChange = { public = it })
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                UploadField(title, { title = it }, "Title", singleLine = true)
+                UploadField(description, { description = it }, "Description")
+                SwitchRow("Public", public, onCheckedChange = { public = it })
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(title, description, public) }, enabled = !saving && title.isNotBlank()) { Text("Save") }
+            LexButton(
+                text = "Save",
+                onClick = { onSave(title, description, public) },
+                tone = LexTone.Primary,
+                enabled = !saving && title.isNotBlank(),
+                loading = saving,
+            )
         },
-        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
+        dismissButton = { LexButton("Cancel", onDismiss, tone = LexTone.Quiet, enabled = !saving) },
     )
 }

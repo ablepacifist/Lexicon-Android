@@ -9,7 +9,10 @@ import okhttp3.Response
  *
  * Scoped by host so the credential is never sent to Alchemy or anywhere else.
  */
-class AuthInterceptor(private val tokenStore: TokenStore) : Interceptor {
+class AuthInterceptor(
+    private val tokenStore: TokenStore,
+    private val sessionExpiry: SessionExpiry? = null,
+) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -27,6 +30,15 @@ class AuthInterceptor(private val tokenStore: TokenStore) : Interceptor {
 
         response.header(REFRESHED_TOKEN_HEADER)?.let { rotated ->
             if (rotated.isNotEmpty()) tokenStore.token = rotated
+        }
+
+        // Our servers answer 401 only for "not signed in", so a 401 to a request that carried
+        // the token means the token is no longer good. Only if it is still the current one:
+        // a late answer to a request sent before sign-out or a rotation proves nothing.
+        if (response.code == 401 && authed !== request && token == tokenStore.token &&
+            !request.url.encodedPath.contains("/api/auth/login")
+        ) {
+            sessionExpiry?.report()
         }
 
         return response

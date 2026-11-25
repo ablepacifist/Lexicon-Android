@@ -24,20 +24,28 @@ data class LexiSettings(
     /** Whether the token can be stored at all. False on a device whose keystore is broken. */
     val secureStorageAvailable: Boolean = true,
     val tunnelUrl: String = DEFAULT_TUNNEL_URL,
-    /** Tried after the tunnel. Defaults to alison's LAN address; only reachable when the
-     *  phone is on the same network, which is rare, but a stored override always wins. */
+    /** Tried after the tunnel, if set. Must be HTTPS: see [bases]. */
     val lanUrl: String = DEFAULT_LAN_URL,
     val orchestrator: String = DEFAULT_ORCHESTRATOR,
     val wakeThreshold: Float = DEFAULT_WAKE_THRESHOLD,
 ) {
-    val bases: List<String> get() = listOf(tunnelUrl, lanUrl).filter { it.isNotBlank() }
+    /**
+     * Where to reach the brain, in order. Plain `http://` addresses are left out: the app
+     * blocks cleartext traffic (network_security_config.xml), so the old default LAN
+     * fallback, `http://<alison>:<port>`, could only ever fail, after a timeout, on every
+     * request that reached it. The brain is reached through the tunnel.
+     */
+    val bases: List<String>
+        get() = listOf(tunnelUrl, lanUrl).filter { it.isNotBlank() && !it.trim().startsWith("http://", ignoreCase = true) }
 
     companion object {
         // The same defaults as the Pi's config.example.toml. Derived from the one
         // destination registry via BuildConfig - see ApiUrls.kt and
         // LexiconAndroid/.env.example - rather than hard-coded, so no longer `const`.
         val DEFAULT_TUNNEL_URL: String = BuildConfig.PUBLIC_BRAIN_URL
-        val DEFAULT_LAN_URL: String = "http://${BuildConfig.ALISON_LAN_IP}:${BuildConfig.BRAIN_LAN_PORT}"
+        // None by default. It was alison's plain-HTTP LAN address, which cleartext blocking
+        // made unreachable; see [bases].
+        const val DEFAULT_LAN_URL: String = ""
         const val DEFAULT_ORCHESTRATOR = "qwen3.5-4b-claude-opus-reasoning-distilled-v2"
         const val DEFAULT_WAKE_THRESHOLD = 0.5f
     }

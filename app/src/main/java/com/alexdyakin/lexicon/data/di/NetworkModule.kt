@@ -1,8 +1,10 @@
 package com.alexdyakin.lexicon.data.di
 
 import android.content.Context
+import com.alexdyakin.lexicon.data.AlchemyIdentityInterceptor
 import com.alexdyakin.lexicon.data.ApiUrls
 import com.alexdyakin.lexicon.data.AuthInterceptor
+import com.alexdyakin.lexicon.data.SessionExpiry
 import com.alexdyakin.lexicon.BuildConfig
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.data.api.AlchemyApi
@@ -40,6 +42,8 @@ import java.util.concurrent.TimeUnit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class SseOkHttp
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class WsOkHttp
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class UploadOkHttp
+/** An API instance on the [UploadOkHttp] client, for requests that carry a whole file. */
+@Qualifier @Retention(AnnotationRetention.BINARY) annotation class ForUploads
 
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class LexiconRetrofit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class AlchemyRetrofit
@@ -69,12 +73,24 @@ object NetworkModule {
      * One base client so all four hosts share a connection pool and cache.
      * Every other client is derived from this with newBuilder().
      */
+    /**
+     * The session cookies, as one object, so signing out can empty them. Built inline in
+     * [baseOkHttp] they could not be reached, and the next person to sign in on the phone
+     * rode the previous user's server session until it expired.
+     */
+    @Provides
+    @Singleton
+    fun cookieManager(): CookieManager =
+        CookieManager().apply { setCookiePolicy(CookiePolicy.ACCEPT_ALL) }
+
     @Provides
     @Singleton
     @BaseOkHttp
     fun baseOkHttp(
         @ApplicationContext context: Context,
         tokenStore: TokenStore,
+        cookieManager: CookieManager,
+        sessionExpiry: SessionExpiry,
     ): OkHttpClient {
         // Debug builds only. This used to be added unconditionally, and since the release
         // build has no minification to strip it, every release request paid to format a log
@@ -88,11 +104,9 @@ object NetworkModule {
         }
         // MobileTokenAuthFilter calls getSession(true), so without a cookie jar every
         // bearer request mints a fresh server-side session. This matches the browser.
-        val cookieJar = JavaNetCookieJar(
-            CookieManager().apply { setCookiePolicy(CookiePolicy.ACCEPT_ALL) }
-        )
+        val cookieJar = JavaNetCookieJar(cookieManager)
         return OkHttpClient.Builder()
-            .addInterceptor(AuthInterceptor(tokenStore))
+            .addInterceptor(AuthInterceptor(tokenStore, sessionExpiry))
             .addInterceptor(logging)
             .cookieJar(cookieJar)
             .cache(Cache(context.cacheDir.resolve("http"), 50L * 1024 * 1024))
@@ -141,8 +155,13 @@ object NetworkModule {
     @Provides @Singleton @LexiconRetrofit
     fun lexiconRetrofit(@BaseOkHttp c: OkHttpClient, json: Json) = retrofit(ApiUrls.LEXICON, c, json)
 
+    /** Alchemy requests carry a fresh SSO token; see [AlchemyIdentityInterceptor]. */
     @Provides @Singleton @AlchemyRetrofit
-    fun alchemyRetrofit(@BaseOkHttp c: OkHttpClient, json: Json) = retrofit(ApiUrls.ALCHEMY, c, json)
+    fun alchemyRetrofit(@BaseOkHttp c: OkHttpClient, json: Json) = retrofit(
+        ApiUrls.ALCHEMY,
+        c.newBuilder().addInterceptor(AlchemyIdentityInterceptor(c, json)).build(),
+        json,
+    )
 
     @Provides @Singleton @PokemonRetrofit
     fun pokemonRetrofit(@BaseOkHttp c: OkHttpClient, json: Json) = retrofit(ApiUrls.POKEMON, c, json)
@@ -152,6 +171,14 @@ object NetworkModule {
 
     @Provides @Singleton
     fun mediaApi(@LexiconRetrofit r: Retrofit): MediaApi = r.create(MediaApi::class.java)
+
+    /**
+     * Media uploads, on the client with no write or call timeout. That client was defined for
+     * exactly this and never injected anywhere, so a large upload ran on the base client.
+     */
+    @Provides @Singleton @ForUploads
+    fun uploadMediaApi(@UploadOkHttp c: OkHttpClient, json: Json): MediaApi =
+        retrofit(ApiUrls.LEXICON, c, json).create(MediaApi::class.java)
 
     @Provides @Singleton
     fun playlistApi(@LexiconRetrofit r: Retrofit): PlaylistApi = r.create(PlaylistApi::class.java)

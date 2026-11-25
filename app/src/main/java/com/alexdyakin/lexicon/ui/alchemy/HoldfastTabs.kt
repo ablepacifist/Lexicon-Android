@@ -39,9 +39,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.alexdyakin.lexicon.data.Holdfast
 import com.alexdyakin.lexicon.data.HoldfastBuildingMenuItem
+import com.alexdyakin.lexicon.data.HoldfastCalendar
+import com.alexdyakin.lexicon.data.HoldfastCrop
 import com.alexdyakin.lexicon.data.HoldfastEvent
+import com.alexdyakin.lexicon.data.HoldfastEventEntry
 import com.alexdyakin.lexicon.data.HoldfastStatus
 import java.util.Locale
 
@@ -58,12 +60,12 @@ internal fun StatusTab(
                 Text("Status", style = MaterialTheme.typography.titleMedium)
                 MetricGrid(
                     listOf(
-                        "Day" to formatElapsed(holdfast.daysElapsed),
-                        "Castle" to formatBuildingName(holdfast.castleType),
+                        "Day" to formatElapsed(selected.calendar),
+                        "Castle" to selected.castleName,
                         "Population" to holdfast.population.toString(),
                         "Happiness" to "${holdfast.happiness.toInt()}% (target ${holdfast.targetHappiness.toInt()}%)",
                         "Protection" to formatGold(selected.protection),
-                        "Raid chance" to "${selected.raidChance}%",
+                        "Raid chance" to "${trimNumber(selected.raidChance)}%/day · ${selected.raidChanceWeek.toInt()}%/wk",
                         "Raids survived" to holdfast.raidsSurvived.toString(),
                         "Net/day" to formatGold(selected.netDailyGold),
                     )
@@ -75,7 +77,7 @@ internal fun StatusTab(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                populationTrend(selected.avgDailyGrowth, selected.populationHistory.size)?.let { trend ->
+                selected.populationTrend?.let { trend ->
                     val arrow = when (trend) {
                         "rising" -> "↑"
                         "falling" -> "↓"
@@ -97,39 +99,35 @@ internal fun StatusTab(
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Stores", style = MaterialTheme.typography.titleMedium)
-                val need = dailyFoodNeed(holdfast.population)
+                val food = selected.food
                 StatusChips(
-                    listOf(
-                        ChipSpec("Gold", formatGold(holdfast.gold), HoldfastLevel.OK),
-                        ChipSpec("Food", holdfast.food.toString(), foodLevel(holdfast.food, holdfast.population)),
-                        ChipSpec("Beer", holdfast.beer.toString(), HoldfastLevel.OK),
-                        ChipSpec("Wine", holdfast.wine.toString(), HoldfastLevel.OK),
-                        ChipSpec("Grain", holdfast.grain.toString(), HoldfastLevel.OK),
-                        ChipSpec("Tools", holdfast.tools.toString(), HoldfastLevel.OK),
-                        ChipSpec("Wood", holdfast.wood.toString(), HoldfastLevel.OK),
-                        ChipSpec("Stone", holdfast.stone.toString(), HoldfastLevel.OK),
-                        ChipSpec("Iron", holdfast.iron.toString(), HoldfastLevel.OK),
-                        ChipSpec("Silver", holdfast.silver.toString(), HoldfastLevel.OK),
-                    )
+                    selected.resources.map { r ->
+                        ChipSpec(
+                            r.label,
+                            if (r.key == "gold") formatGold(r.amount) else trimNumber(r.amount),
+                            levelOf(r.level),
+                            iconKey = resourceAssetKey(r.key),
+                        )
+                    }
                 )
                 Text(
-                    "Eats $need food/day  ·  ${formatDaysOfFood(selected.daysOfFood)} left",
+                    "Eats ${food.dailyNeed} food/day  ·  ${formatDaysOfFood(food.daysOfFood)} left",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (holdfast.food <= 0) {
+                if (levelOf(food.level) == HoldfastLevel.DANGER) {
                     Text(
-                        "No food: buying rations at ${formatGold(rationCost(holdfast.population))}g/day. " +
+                        "No food: buying rations at ${formatGold(food.rationCostPerDay)}g/day. " +
                             "If the gold runs out too, happiness falls 3/day.",
                         style = MaterialTheme.typography.bodySmall,
                         color = HoldfastDanger,
                     )
                 }
-                if (spoilLevel(selected.nextSpoilIn) != HoldfastLevel.OK) {
+                if (levelOf(food.spoilLevel) != HoldfastLevel.OK) {
                     Text(
-                        "Spoilage in ${formatSpoilIn(selected.nextSpoilIn)} (shelf life ${selected.foodShelfLife}d)",
+                        "Spoilage in ${formatSpoilIn(food.nextSpoilIn)} (shelf life ${food.shelfLife}d)",
                         style = MaterialTheme.typography.bodySmall,
-                        color = levelColor(spoilLevel(selected.nextSpoilIn)),
+                        color = levelColor(levelOf(food.spoilLevel)),
                     )
                 }
             }
@@ -138,30 +136,30 @@ internal fun StatusTab(
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Built structures", style = MaterialTheme.typography.titleMedium)
-                // The map carries every known building type, most of them at zero, which
-                // buried the handful actually built under ~30 rows of "×0".
-                val built = holdfast.buildings.filterValues { it > 0 }.entries.sortedBy { it.key }
-                if (built.isEmpty()) {
+                if (selected.builtBuildings.isEmpty()) {
                     Text("No buildings yet.")
                 } else {
-                    built.forEach { (type, count) -> Text("${formatBuildingName(type)} ×$count") }
+                    selected.builtBuildings.forEach { b ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            HoldfastIcon(buildingAssetKey(b.type), HoldfastIconSize.Row)
+                            Text("${b.name} ×${b.count}")
+                        }
+                    }
                 }
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Growing crops", style = MaterialTheme.typography.titleMedium)
-                val planted = HOLDFAST_CROPS.filter { it.plantDays(holdfast).isNotEmpty() }
-                if (planted.isEmpty()) {
+                if (selected.crops.isEmpty()) {
                     Text("Nothing is planted.", style = MaterialTheme.typography.bodyMedium)
                 } else {
-                    planted.forEach { crop -> CropRows(crop, selected) }
+                    selected.crops.forEach { crop -> CropRows(crop, selected) }
                 }
             }
         }
 
-        // Only annuals go fallow, and only when a built field has no crop in it.
-        val fallow = HOLDFAST_CROPS.filter { fallowCount(holdfast, it) > 0 }
+        val fallow = selected.fallowFields
         AnimatedVisibility(
             visible = fallow.isNotEmpty(),
             enter = fadeIn() + expandVertically(),
@@ -175,23 +173,23 @@ internal fun StatusTab(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    fallow.forEach { crop ->
-                        val count = fallowCount(holdfast, crop)
+                    fallow.forEach { field ->
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            HoldfastIcon(buildingAssetKey(field.type), HoldfastIconSize.Row)
                             Text(
-                                "${crop.label}: $count need replanting",
+                                "${field.label}: ${field.fallow} need replanting",
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
                             Button(
-                                onClick = { onReplant(crop.type) },
-                                enabled = !saving,
+                                onClick = { onReplant(field.type) },
+                                enabled = !saving && field.canAfford,
                             ) {
-                                Text("Replant — ${replantCost(holdfast, crop)}g")
+                                Text("Replant — ${field.replantCost}g")
                             }
                         }
                     }
@@ -203,18 +201,17 @@ internal fun StatusTab(
 
 /** One labelled group of fields, with a growth bar per planted field. */
 @Composable
-private fun CropRows(crop: CropKind, selected: HoldfastStatus) {
-    val holdfast = selected.holdfast
-    val days = crop.plantDays(holdfast)
-    val harvestDays = harvestDaysFor(crop, selected)
-
+private fun CropRows(crop: HoldfastCrop, selected: HoldfastStatus) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            "${crop.label} (${days.size})",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        if (harvestDays == null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            HoldfastIcon(buildingAssetKey(crop.type), HoldfastIconSize.Row)
+            Text(
+                "${crop.label} (${crop.planted})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (!crop.showProgress) {
             // Vineyards: no meaningful harvest, so state the production rate instead.
             val item = selected.buildingMenu.firstOrNull { it.type == crop.type }
             val amount = item?.productionAmount
@@ -231,15 +228,13 @@ private fun CropRows(crop: CropKind, selected: HoldfastStatus) {
             return@Column
         }
 
-        days.sorted().forEachIndexed { index, plantDay ->
-            val target = cropProgress(holdfast.daysElapsed, plantDay, harvestDays)
+        crop.fields.forEach { field ->
             val progress by animateFloatAsState(
-                targetValue = target,
+                targetValue = field.percent / 100f,
                 animationSpec = tween(900, easing = FastOutSlowInEasing),
-                label = "crop-${crop.type}-$index",
+                label = "crop-${crop.type}-${field.field}",
             )
-            val grown = cropGrownDays(holdfast.daysElapsed, plantDay, harvestDays)
-            val ready = target >= 1f
+            val ready = field.ready
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LinearProgressIndicator(
                     progress = { progress },
@@ -247,7 +242,7 @@ private fun CropRows(crop: CropKind, selected: HoldfastStatus) {
                     color = if (ready) HoldfastOk else MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    if (ready) "ready" else "$grown/${harvestDays}d",
+                    if (ready) "ready" else "${field.grownDays}/${field.harvestDays}d",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -257,7 +252,15 @@ private fun CropRows(crop: CropKind, selected: HoldfastStatus) {
 }
 
 @Composable
-internal fun TimeTab(advanceDays: String, onAdvanceDaysChange: (String) -> Unit, events: List<String>, saving: Boolean, onAdvance: () -> Unit) {
+internal fun TimeTab(
+    advanceDays: String,
+    onAdvanceDaysChange: (String) -> Unit,
+    events: List<HoldfastEventEntry>,
+    saving: Boolean,
+    onAdvance: () -> Unit,
+    canAdvance: Boolean,
+    calendar: HoldfastCalendar,
+) {
     // The server rejects anything outside 1..365 (HoldfastController.java:78), so say so
     // here rather than letting the request round-trip to a rejection.
     val parsed = advanceDays.toIntOrNull()
@@ -267,6 +270,16 @@ internal fun TimeTab(advanceDays: String, onAdvanceDaysChange: (String) -> Unit,
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Advance time", style = MaterialTheme.typography.titleMedium)
+                Text("Day ${calendar.day} · week ${calendar.week}", style = MaterialTheme.typography.bodyLarge)
+                if (!canAdvance) {
+                    // Lexicon decides who may advance time; Alchemy enforces it.
+                    Text(
+                        "Time is advanced by an admin. Ask your DM to move the clock forward.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    return@Column
+                }
                 OutlinedTextField(
                     advanceDays,
                     onAdvanceDaysChange,
@@ -290,24 +303,20 @@ internal fun TimeTab(advanceDays: String, onAdvanceDaysChange: (String) -> Unit,
                 if (events.isEmpty()) {
                     Text("No recent advance events.")
                 } else {
-                    events.forEach { event -> EventLine(event) }
+                    events.forEach { event -> EventLine(event.message, event.tone) }
                 }
             }
         }
     }
 }
 
-/**
- * One event line, coloured by severity. Shared by the Time and Log tabs so the two
- * cannot drift apart on what counts as a raid, a famine or a good harvest.
- */
+/** One event line, coloured by the tone alchemyServer gave it. Shared by the Time and Log tabs. */
 @Composable
-internal fun EventLine(message: String, prefix: String? = null) {
-    val notable = eventIsNotable(message)
+internal fun EventLine(message: String, tone: String, prefix: String? = null) {
     Text(
         if (prefix != null) "$prefix $message" else message,
         style = MaterialTheme.typography.bodySmall,
-        color = if (notable) levelColor(eventLevel(message)) else MaterialTheme.colorScheme.onSurface,
+        color = toneColor(tone) ?: MaterialTheme.colorScheme.onSurface,
     )
 }
 
@@ -323,7 +332,6 @@ internal fun LazyListScope.buildTab(
     saving: Boolean,
     onBuild: (String) -> Unit,
 ) {
-    val holdfast = selected.holdfast
     // Web order, and grouping means an unexpected status can never be dropped silently.
     val groups = selected.buildingMenu.groupBy { it.status }
     val sections = listOf(
@@ -340,7 +348,7 @@ internal fun LazyListScope.buildTab(
             Text("$title (${items.size})", style = MaterialTheme.typography.titleMedium)
         }
         items(items, key = { "build-${it.type}" }) { menuItem ->
-            BuildCard(menuItem, holdfast, saving, onBuild)
+            BuildCard(menuItem, saving, onBuild)
         }
     }
 
@@ -351,7 +359,7 @@ internal fun LazyListScope.buildTab(
             Text("Other (${other.size})", style = MaterialTheme.typography.titleMedium)
         }
         items(other, key = { "build-other-${it.type}" }) { menuItem ->
-            BuildCard(menuItem, holdfast, saving, onBuild)
+            BuildCard(menuItem, saving, onBuild)
         }
     }
 }
@@ -359,12 +367,11 @@ internal fun LazyListScope.buildTab(
 @Composable
 private fun BuildCard(
     item: HoldfastBuildingMenuItem,
-    holdfast: Holdfast,
     saving: Boolean,
     onBuild: (String) -> Unit,
 ) {
     val buildable = item.status == "available"
-    val affordable = holdfast.canAfford(item.resourceCost) && holdfast.gold >= item.cost
+    val affordable = item.canBuild
     // Deliberately NOT dimmed with alpha. These cards sit on a busy illustrated
     // background, and fading them made the text compete with the map. An explicit
     // line says the same thing and stays readable. The button stays live either way:
@@ -373,7 +380,12 @@ private fun BuildCard(
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HoldfastIcon(buildingAssetKey(item.type), HoldfastIconSize.Card)
                 Text(item.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 Text(
                     if (item.max != null) "${item.current} / ${item.max}" else "${item.current}",
@@ -391,7 +403,7 @@ private fun BuildCard(
                 Text(
                     "${item.cost}g",
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (buildable && holdfast.gold < item.cost) HoldfastDanger else MaterialTheme.colorScheme.onSurface,
+                    color = if (buildable && !item.canAffordGold) HoldfastDanger else MaterialTheme.colorScheme.onSurface,
                 )
                 // A carpenter discounts every build; show what it saved.
                 if (item.baseCost > item.cost) {
@@ -404,14 +416,14 @@ private fun BuildCard(
                 }
             }
 
-            item.resourceCost?.takeIf { it.isNotEmpty() }?.let { costs ->
+            if (item.resourceRequirements.isNotEmpty()) {
                 StatusChips(
-                    costs.entries.sortedBy { it.key }.map { (resource, needed) ->
-                        val have = holdfast.resourceAmount(resource)
+                    item.resourceRequirements.map { r ->
                         ChipSpec(
-                            label = resource.replaceFirstChar { it.uppercase() },
-                            value = "$have/$needed",
-                            level = if (have >= needed) HoldfastLevel.OK else HoldfastLevel.DANGER,
+                            label = r.resource.replaceFirstChar { it.uppercase() },
+                            value = "${r.have}/${r.needed}",
+                            level = if (r.enough) HoldfastLevel.OK else HoldfastLevel.DANGER,
+                            iconKey = resourceAssetKey(r.resource),
                         )
                     }
                 )
@@ -423,7 +435,7 @@ private fun BuildCard(
 
             if (short) {
                 Text(
-                    if (holdfast.gold < item.cost) "Not enough gold yet" else "Not enough materials yet",
+                    if (!item.canAffordGold) "Not enough gold yet" else "Not enough materials yet",
                     style = MaterialTheme.typography.labelSmall,
                     color = HoldfastWarn,
                 )
@@ -476,7 +488,7 @@ internal fun TreasuryTab(
     onToggleFoodMarket: () -> Unit,
 ) {
     val holdfast = selected.holdfast
-    val markets = holdfast.buildings["food_market"] ?: 0
+    val market = selected.foodMarket
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(Modifier.fillMaxWidth()) {
@@ -488,30 +500,28 @@ internal fun TreasuryTab(
             }
         }
 
-        // Only meaningful with a market built; the server ignores the flag otherwise
-        // (HoldfastManager.java:213 requires food_market > 0).
-        if (markets > 0) {
+        // Only meaningful with a market built; the server ignores the flag otherwise.
+        if (market.available) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Food market", style = MaterialTheme.typography.titleMedium)
-                    // status.foodMarketEnabled is the value the server recomputes.
-                    val enabled = selected.foodMarketEnabled
+                    val enabled = market.enabled
                     Text(
                         if (enabled) "Selling surplus food" else "Not selling",
                         color = if (enabled) HoldfastOk else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Up to ${foodMarketDailyCap(markets)} food/day → ${formatGold(foodMarketDailyGold(markets))}g/day",
+                        "Up to ${market.dailyCap} food/day → ${formatGold(market.dailyGold)}g/day",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "Keeps a reserve of ${foodMarketReserve(holdfast.population)} food; " +
-                            "shelf life ${selected.foodShelfLife}d.",
+                        "Keeps a reserve of ${market.reserve} food; " +
+                            "shelf life ${selected.food.shelfLife}d.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (enabled) {
-                        val today = foodMarketSellable(holdfast.food, holdfast.population, markets)
+                        val today = market.sellableToday
                         Text(
                             if (today > 0) "Today it would sell $today food." else "Nothing above the reserve to sell today.",
                             style = MaterialTheme.typography.bodySmall,
@@ -583,7 +593,7 @@ internal fun LogTab(events: List<HoldfastEvent>, loading: Boolean, onLoadEvents:
                     events.isEmpty() -> Text("Nothing has happened yet.")
                     // Newest first: the interesting end of a long settlement history.
                     else -> events.asReversed().forEach { event ->
-                        EventLine(event.message, prefix = "d${event.day}")
+                        EventLine(event.message, event.tone, prefix = "d${event.day}")
                     }
                 }
             }
@@ -627,9 +637,10 @@ internal fun HelpTab() {
             "Raids",
             "Protection starts at 50 and rises with your castle, guard towers, blacksmiths, stone " +
                 "walls and a keep. A large population and a fat daily income both work against " +
-                "it. Raid chance runs from 8% down to a floor of 0.5% as protection climbs.\n\n" +
-                "A raid steals gold, can level buildings and costs lives. Walls and the keep " +
-                "cannot be destroyed.",
+                "it. Raids are checked every day, at 4% a day falling to a floor of 0.25% as protection " +
+                "climbs. That adds up over a long advance: 4% a day is about 25% over a week.\n\n" +
+                "A raid steals 15-20% of your gold, can level up to 2 buildings and costs a few " +
+                "lives. Walls and the keep cannot be destroyed.",
         )
         HelpCard(
             "Selling food",
@@ -688,8 +699,6 @@ internal fun MetricPill(label: String, value: String, modifier: Modifier = Modif
     }
 }
 
-internal fun formatBuildingName(type: String): String = type.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-
 // Locale.US is deliberate: a default-locale format yields "12,5" in much of Europe,
 // which reads as a thousands separator next to the plain integer counts beside it.
 internal fun formatGold(value: Double): String = String.format(Locale.US, "%.1f", value)
@@ -701,7 +710,7 @@ internal fun formatDaysOfFood(days: Int): String = if (days >= 999) "plenty" els
 internal fun formatSpoilIn(days: Int): String = if (days < 0) "—" else "$days day(s)"
 
 /** A single labelled value with a severity colour. */
-internal data class ChipSpec(val label: String, val value: String, val level: HoldfastLevel)
+internal data class ChipSpec(val label: String, val value: String, val level: HoldfastLevel, val iconKey: String? = null)
 
 internal fun levelColor(level: HoldfastLevel): Color = when (level) {
     HoldfastLevel.OK -> HoldfastOk
@@ -733,6 +742,7 @@ internal fun StatusChips(chips: List<ChipSpec>) {
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    chip.iconKey?.let { HoldfastIcon(it, HoldfastIconSize.Chip) }
                     Text(
                         chip.label,
                         style = MaterialTheme.typography.labelSmall,

@@ -1,5 +1,6 @@
 package com.alexdyakin.lexicon.ui.lexi
 
+import com.alexdyakin.lexicon.ui.theme.LexiColors
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
@@ -276,8 +277,8 @@ private fun headline(state: LexiState) = when (state) {
 private fun Orb(state: LexiState) {
     val primary = MaterialTheme.colorScheme.primary
     val target = when (state) {
-        LexiState.Capturing -> Color(0xFF7FB069)
-        is LexiState.Thinking, is LexiState.Speaking -> Color(0xFF8AB4F8)
+        LexiState.Capturing -> LexiColors.Listening
+        is LexiState.Thinking, is LexiState.Speaking -> LexiColors.Answering
         is LexiState.Failed -> MaterialTheme.colorScheme.error
         LexiState.Off, LexiState.PausedForCall -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
         else -> primary

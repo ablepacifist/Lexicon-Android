@@ -323,7 +323,10 @@ data class BrewPotionResponse(
     val dailyUpkeep: Double = 0.0,
     val netDailyGold: Double = 0.0,
     val protection: Double = 0.0,
+    /** Percent per in-game day. */
     val raidChance: Double = 0.0,
+    /** Chance of at least one raid over 7 days, worked out by alchemyServer. */
+    val raidChanceWeek: Double = 0.0,
     val targetHappiness: Double = 0.0,
     val buildingMenu: List<HoldfastBuildingMenuItem> = emptyList(),
     val daysOfFood: Int = 0,

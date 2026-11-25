@@ -65,7 +65,7 @@ internal fun StatusTab(
                         "Population" to holdfast.population.toString(),
                         "Happiness" to "${holdfast.happiness.toInt()}% (target ${holdfast.targetHappiness.toInt()}%)",
                         "Protection" to formatGold(selected.protection),
-                        "Raid chance" to "${selected.raidChance}%",
+                        "Raid chance" to "${trimNumber(selected.raidChance)}%/day · ${selected.raidChanceWeek.toInt()}%/wk",
                         "Raids survived" to holdfast.raidsSurvived.toString(),
                         "Net/day" to formatGold(selected.netDailyGold),
                     )
@@ -637,9 +637,10 @@ internal fun HelpTab() {
             "Raids",
             "Protection starts at 50 and rises with your castle, guard towers, blacksmiths, stone " +
                 "walls and a keep. A large population and a fat daily income both work against " +
-                "it. Raid chance runs from 8% down to a floor of 0.5% as protection climbs.\n\n" +
-                "A raid steals gold, can level buildings and costs lives. Walls and the keep " +
-                "cannot be destroyed.",
+                "it. Raids are checked every day, at 4% a day falling to a floor of 0.25% as protection " +
+                "climbs. That adds up over a long advance: 4% a day is about 25% over a week.\n\n" +
+                "A raid steals 15-20% of your gold, can level up to 2 buildings and costs a few " +
+                "lives. Walls and the keep cannot be destroyed.",
         )
         HelpCard(
             "Selling food",

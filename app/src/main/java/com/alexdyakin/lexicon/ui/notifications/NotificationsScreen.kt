@@ -1,5 +1,8 @@
 package com.alexdyakin.lexicon.ui.notifications
 
+import com.alexdyakin.lexicon.ui.components.ErrorBox
+import com.alexdyakin.lexicon.data.parseTimestampMillis
+import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -51,6 +54,8 @@ data class NotificationsUiState(
     val unreadCount: Int = 0,
     val items: List<AppNotification> = emptyList(),
     val message: String? = null,
+    /** Why the list could not be loaded; shown instead of "No notifications yet". */
+    val loadError: String? = null,
 )
 
 /**
@@ -73,6 +78,7 @@ class NotificationsViewModel @Inject constructor(
                 unreadCount = feed.unreadCount,
                 items = feed.items,
                 message = message ?: feed.message,
+                loadError = feed.message,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotificationsUiState())
 
@@ -110,7 +116,9 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = 
 
     ScreenScaffold("Notifications", onBack) { padding ->
         when {
-            state.loading -> LoadingBox(padding)
+            state.loading && state.items.isEmpty() -> LoadingBox(padding)
+            // A failed load used to read as an empty inbox.
+            state.items.isEmpty() && state.loadError != null -> ErrorBox(state.loadError!!, viewModel::refresh, padding)
             state.items.isEmpty() -> EmptyBox(padding, "No notifications yet")
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -122,7 +130,8 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = 
                         modifier = Modifier.animateContentSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("${state.unreadCount} unread", style = MaterialTheme.typography.titleMedium)
+                        // No colour was set, so on the dark ground it took the default dark text and vanished.
+                        Text("${state.unreadCount} unread", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
                         // The button collapses away once everything is read rather
                         // than sitting there greyed out.
                         AnimatedVisibility(
@@ -157,7 +166,7 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = 
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(notification.title.ifBlank { notification.type }, style = MaterialTheme.typography.titleMedium)
                             Text(notification.body)
-                            val attribution = listOf(notification.fromUsername.takeIf { it.isNotBlank() }, notification.createdAt.takeIf { it.isNotBlank() }).filterNotNull().joinToString(" · ")
+                            val attribution = listOf(notification.fromUsername.takeIf { it.isNotBlank() }, relativeTime(notification.createdAt)).filterNotNull().joinToString(" · ")
                             if (attribution.isNotBlank()) Text(attribution, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -165,4 +174,10 @@ fun NotificationsScreen(onBack: () -> Unit, viewModel: NotificationsViewModel = 
             }
         }
     }
+}
+
+/** "5 min. ago", "Yesterday"; the raw `2026-11-24T19:03:11.204` was shown before. */
+private fun relativeTime(raw: String): String? {
+    val millis = parseTimestampMillis(raw).takeIf { it > 0 } ?: return null
+    return DateUtils.getRelativeTimeSpanString(millis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
 }

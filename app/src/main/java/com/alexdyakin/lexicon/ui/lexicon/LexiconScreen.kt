@@ -159,7 +159,9 @@ fun LexiconScreen(
 
             state.storage?.volumes?.takeIf { it.isNotEmpty() }?.let { volumes ->
                 item {
+                    // Opens the storage dashboard, which had a route but nothing leading to it.
                     Card(
+                        onClick = { onOpen("storage") },
                         shape = Radii.card,
                         modifier = Modifier.fillMaxWidth(),
                         elevation = CardDefaults.cardElevation(defaultElevation = Elevation.card),

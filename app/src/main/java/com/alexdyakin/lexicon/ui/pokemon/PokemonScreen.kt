@@ -1,5 +1,26 @@
 package com.alexdyakin.lexicon.ui.pokemon
 
+import com.alexdyakin.lexicon.ui.theme.LexPalette
+import androidx.compose.ui.graphics.luminance
+import com.alexdyakin.lexicon.ui.theme.PokemonTypeColors
+import com.alexdyakin.lexicon.ui.theme.Status
+import com.alexdyakin.lexicon.ui.components.ActionRow
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import kotlin.math.sin
+import kotlin.math.PI
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.LinearEasing
+import com.alexdyakin.lexicon.ui.components.ErrorBox
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import com.alexdyakin.lexicon.ui.components.LaunchedWhileResumed
+import com.alexdyakin.lexicon.data.safeApiCall
+import com.alexdyakin.lexicon.data.ApiResult
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,7 +64,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import retrofit2.HttpException
 
 data class PokemonUiState(
     val loading: Boolean = true,
@@ -63,20 +83,14 @@ class PokemonViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
-            try {
-                val collection = pokemonApi.collection()
-                _state.value = PokemonUiState(loading = false, collection = collection)
-            } catch (e: HttpException) {
-                _state.value = PokemonUiState(
+            _state.value = when (val result = safeApiCall { pokemonApi.collection() }) {
+                is ApiResult.Success -> PokemonUiState(loading = false, collection = result.data)
+                // A failed refresh keeps what is already on screen; the error shows only when
+                // there is nothing else to show.
+                is ApiResult.Failure -> _state.value.copy(loading = false, error = result.message)
+                ApiResult.Unauthorized -> _state.value.copy(
                     loading = false,
-                    error = if (e.code() == 401)
-                        "Pokémon server rejected the login token.\n\nIt needs the bearer-token update deployed before this works."
-                    else "Could not load your collection (HTTP ${e.code()}).",
-                )
-            } catch (e: Exception) {
-                _state.value = PokemonUiState(
-                    loading = false,
-                    error = "Could not reach the Pokémon server. ${e.message ?: ""}".trim(),
+                    error = "Your session has expired. Sign in again to see your Pokémon.",
                 )
             }
         }
@@ -95,7 +109,25 @@ fun PokemonScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    ScreenScaffold(title = "Pokémon", onBack = onBack, actions = { TextButton(onClick = onOpenPokedex) { Text("Dex") }; TextButton(onClick = onOpenEggs) { Text("Eggs") }; TextButton(onClick = onOpenShop) { Text("Shop") } }) { padding ->
+    // Back from the map or an egg hatching: a catch made there showed only after leaving
+    // and re-entering this screen. The first resume is skipped; init already loaded.
+    var resumedBefore by remember { mutableStateOf(false) }
+    LaunchedWhileResumed(Unit) {
+        if (resumedBefore) viewModel.refresh() else resumedBefore = true
+    }
+
+    // One clock for the whole grid. Each card used to run its own infinite transition, so a
+    // collection of 60 kept 60 animations recomposing 60 cards every frame.
+    val bobClock by rememberInfiniteTransition(label = "bob").animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
+        label = "bobClock",
+    )
+
+    // Dex, Eggs and Shop were three text buttons in the top bar, which crushed the title; they
+    // are places to go in Pokémon, so they sit with the map button instead.
+    ScreenScaffold(title = "Pokémon", onBack = onBack) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // Outside the `when` on purpose. The map is where Pokemon come from, so it
             // has to be reachable in every state — including the empty one a new player
@@ -111,9 +143,15 @@ fun PokemonScreen(
                     .padding(horizontal = Spacing.gutter)
                     .padding(top = Spacing.md),
             )
+            ActionRow(Modifier.padding(horizontal = Spacing.gutter).padding(top = Spacing.sm)) {
+                LexButton("Pokédex", onClick = onOpenPokedex)
+                LexButton("Eggs", onClick = onOpenEggs)
+                LexButton("Shop", onClick = onOpenShop)
+            }
             when {
-                state.loading -> LoadingBox(PaddingValues(0.dp))
-                state.error != null -> EmptyBox(PaddingValues(0.dp), state.error!!)
+                state.loading && state.collection.isEmpty() -> LoadingBox(PaddingValues(0.dp))
+                state.error != null && state.collection.isEmpty() ->
+                    ErrorBox(state.error!!, viewModel::refresh, PaddingValues(0.dp))
                 state.collection.isEmpty() ->
                     EmptyBox(PaddingValues(0.dp), "No Pokémon caught yet.")
                 else -> LazyVerticalGrid(
@@ -124,7 +162,7 @@ fun PokemonScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     itemsIndexed(state.collection, key = { _, p -> p.id }) { index, pokemon ->
-                        PokemonCard(pokemon, index) { onOpenPokemon(pokemon.id) }
+                        PokemonCard(pokemon, index, bobClock = { bobClock }) { onOpenPokemon(pokemon.id) }
                     }
                 }
             }
@@ -133,19 +171,11 @@ fun PokemonScreen(
 }
 
 @Composable
-private fun PokemonCard(pokemon: CaughtPokemon, index: Int, onClick: () -> Unit) {
-    // Sprites bob on staggered cycles, so a full grid feels alive rather than
-    // like a spreadsheet of images
-    val transition = rememberInfiniteTransition(label = "bob$index")
-    val bob by transition.animateFloat(
-        initialValue = -4f,
-        targetValue = 4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500 + (index % 5) * 220, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "bob",
-    )
+private fun PokemonCard(pokemon: CaughtPokemon, index: Int, bobClock: () -> Float, onClick: () -> Unit) {
+    // Sprites bob out of step with each other, so a full grid feels alive rather than like a
+    // spreadsheet of images. The shared clock is read in the draw phase (graphicsLayer), so a
+    // tick moves the sprite without recomposing the card.
+    val phase = index * 1.3f
 
     Card(
         colors = CardDefaults.cardColors(
@@ -166,7 +196,7 @@ private fun PokemonCard(pokemon: CaughtPokemon, index: Int, onClick: () -> Unit)
                         .background(
                             Brush.radialGradient(
                                 listOf(
-                                    typeColor(pokemon.type1).copy(alpha = 0.8f),
+                                    PokemonTypeColors.of(pokemon.type1).copy(alpha = 0.8f),
                                     Color.Transparent,
                                 )
                             ),
@@ -179,7 +209,7 @@ private fun PokemonCard(pokemon: CaughtPokemon, index: Int, onClick: () -> Unit)
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .size(76.dp)
-                        .offset(y = bob.dp)
+                        .graphicsLayer { translationY = sin(bobClock() + phase) * 4.dp.toPx() }
                         .alpha(if (pokemon.fainted) 0.45f else 1f),
                 )
             }
@@ -218,9 +248,9 @@ private fun PokemonCard(pokemon: CaughtPokemon, index: Int, onClick: () -> Unit)
                     progress = { animatedRatio },
                     modifier = Modifier.fillMaxWidth().height(6.dp),
                     color = when {
-                        ratio > 0.5f -> Color(0xFF6B8F5E)
-                        ratio > 0.2f -> Color(0xFFC8A24C)
-                        else -> Color(0xFFB4552F)
+                        ratio > 0.5f -> Status.ok
+                        ratio > 0.2f -> Status.warn
+                        else -> Status.danger
                     },
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
@@ -232,37 +262,18 @@ private fun PokemonCard(pokemon: CaughtPokemon, index: Int, onClick: () -> Unit)
 @Composable
 private fun TypeChip(type: String) {
     if (type.isBlank()) return
+    val fill = PokemonTypeColors.of(type)
     Surface(
-        color = typeColor(type).copy(alpha = 0.85f),
+        color = fill,
         shape = RoundedCornerShape(8.dp),
     ) {
         Text(
             type.lowercase().replaceFirstChar { it.uppercase() },
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
+            // White on Electric, Ice or Steel was close to unreadable; light types get dark text.
+            color = if (fill.luminance() > 0.45f) LexPalette.Lowest else Color.White,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }
 
-/** Standard type colours, so the grid reads at a glance. */
-private fun typeColor(type: String): Color = when (type.lowercase()) {
-    "fire" -> Color(0xFFEE8130)
-    "water" -> Color(0xFF6390F0)
-    "grass" -> Color(0xFF7AC74C)
-    "electric" -> Color(0xFFF7D02C)
-    "psychic" -> Color(0xFFF95587)
-    "ice" -> Color(0xFF96D9D6)
-    "dragon" -> Color(0xFF6F35FC)
-    "dark" -> Color(0xFF705746)
-    "fairy" -> Color(0xFFD685AD)
-    "fighting" -> Color(0xFFC22E28)
-    "flying" -> Color(0xFFA98FF3)
-    "poison" -> Color(0xFFA33EA1)
-    "ground" -> Color(0xFFE2BF65)
-    "rock" -> Color(0xFFB6A136)
-    "bug" -> Color(0xFFA6B91A)
-    "ghost" -> Color(0xFF735797)
-    "steel" -> Color(0xFFB7B7CE)
-    else -> Color(0xFF9FA19F)
-}

@@ -1,13 +1,26 @@
 package com.alexdyakin.lexicon.ui.pokemon
 
+import com.alexdyakin.lexicon.ui.theme.Status
+import com.alexdyakin.lexicon.ui.theme.Spacing
+import com.alexdyakin.lexicon.ui.components.ListRow
+import com.alexdyakin.lexicon.ui.components.LexTone
+import com.alexdyakin.lexicon.ui.components.LexButton
+import com.alexdyakin.lexicon.ui.components.ErrorBox
+import com.alexdyakin.lexicon.ui.components.ActionRow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -38,7 +51,6 @@ import com.alexdyakin.lexicon.data.FavouritePokemonRequest
 import com.alexdyakin.lexicon.data.NicknamePokemonRequest
 import com.alexdyakin.lexicon.data.api.PokemonApi
 import com.alexdyakin.lexicon.data.safeApiCall
-import com.alexdyakin.lexicon.ui.components.EmptyBox
 import com.alexdyakin.lexicon.ui.components.LoadingBox
 import com.alexdyakin.lexicon.ui.components.ScreenScaffold
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -54,9 +66,21 @@ class PokemonDetailViewModel @Inject constructor(private val api: PokemonApi) : 
     private val _state = MutableStateFlow(PokemonDetailUiState())
     val state = _state.asStateFlow()
     fun load(id: Long) = viewModelScope.launch {
-        val pokemon = safeApiCall { api.collection() }.successOrNull?.firstOrNull { it.id == id }
+        val collection = safeApiCall { api.collection() }
+        val pokemon = collection.successOrNull?.firstOrNull { it.id == id }
         val evolutions = pokemon?.let { safeApiCall { api.evolutionOptions(it.id) }.successOrNull }.orEmpty()
-        _state.value = PokemonDetailUiState(false, pokemon = pokemon, evolutions = evolutions, message = if (pokemon == null) "That Pokémon was not found." else null)
+        _state.value = PokemonDetailUiState(
+            false,
+            pokemon = pokemon,
+            // The button always started at "Favourite", even for a starred Pokémon.
+            favourite = pokemon?.favourite ?: false,
+            evolutions = evolutions,
+            message = when {
+                pokemon != null -> null
+                collection is ApiResult.Success -> "That Pokémon was not found."
+                else -> "Couldn't load this Pokémon. Check your connection and try again."
+            },
+        )
     }
     fun nickname(name: String) = action(call = { pokemon -> api.nickname(NicknamePokemonRequest(pokemon.id, name)) }, update = { pokemon -> pokemon.copy(nickname = name) })
     fun favourite() = viewModelScope.launch {
@@ -103,35 +127,135 @@ fun PokemonDetailScreen(id: Long, onBack: () -> Unit, viewModel: PokemonDetailVi
     val state by viewModel.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(id) { viewModel.load(id) }
     var nickname by remember(state.pokemon?.id) { mutableStateOf(state.pokemon?.nickname.orEmpty()) }
-    ScreenScaffold("Pokémon details", onBack) { padding ->
+    ScreenScaffold("Pokémon details", onBack, gutter = Spacing.gutter) { padding ->
         when {
             state.loading -> LoadingBox(padding)
-            state.pokemon == null -> EmptyBox(padding, state.message ?: "Could not load Pokémon.")
-            else -> {
-                val pokemon = state.pokemon!!
-                Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    AsyncImage(ApiUrls.spriteUrl(pokemon.spriteKey), pokemon.displayName, Modifier.size(160.dp), contentScale = ContentScale.Fit)
-                    Text(pokemon.displayName, style = MaterialTheme.typography.headlineMedium)
-                    Text("Lv ${pokemon.pokemonLevel} · ${pokemon.type1} ${pokemon.type2}".trim())
-                    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text("HP ${pokemon.currentHp} / ${pokemon.hp}"); Text("Attack ${pokemon.attack} · Defense ${pokemon.defense} · Speed ${pokemon.speed}") } }
-                    OutlinedTextField(nickname, { nickname = it }, label = { Text("Nickname") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button({ viewModel.nickname(nickname) }, enabled = !state.saving) { Text("Save name") }
-                        Button({ viewModel.favourite() }, enabled = !state.saving) { Text(if (state.favourite) "Unfavourite" else "Favourite") }
-                        Button({ viewModel.buddy() }, enabled = !state.saving) { Text("Set buddy") }
+            state.pokemon == null -> ErrorBox(state.message ?: "Couldn't load this Pokémon.", { viewModel.load(id) }, padding)
+            else -> PokemonDetailBody(
+                pokemon = state.pokemon!!,
+                state = state,
+                nickname = nickname,
+                onNickname = { nickname = it },
+                viewModel = viewModel,
+                padding = padding,
+            )
+        }
+    }
+}
+
+/**
+ * Scrolls, and every group of actions wraps. It was a fixed column with a row of three
+ * filled buttons (Save name, Favourite, Set buddy) that ran off a 360dp screen, and once
+ * the evolution card was added the bottom of the screen could not be reached at all.
+ */
+@Composable
+private fun PokemonDetailBody(
+    pokemon: CaughtPokemon,
+    state: PokemonDetailUiState,
+    nickname: String,
+    onNickname: (String) -> Unit,
+    viewModel: PokemonDetailViewModel,
+    padding: PaddingValues,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AsyncImage(ApiUrls.spriteUrl(pokemon.spriteKey), pokemon.displayName, Modifier.size(140.dp), contentScale = ContentScale.Fit)
+        Text(pokemon.displayName, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+        Text(
+            listOf("Lv ${pokemon.pokemonLevel}", pokemon.type1, pokemon.type2).filter { it.isNotBlank() }.joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        state.message?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                val ratio = if (pokemon.hp > 0) pokemon.currentHp.toFloat() / pokemon.hp else 0f
+                Text(if (pokemon.fainted) "Fainted" else "HP ${pokemon.currentHp} / ${pokemon.hp}", style = MaterialTheme.typography.titleSmall)
+                LinearProgressIndicator(
+                    progress = { ratio.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = when {
+                        ratio > 0.5f -> Status.ok
+                        ratio > 0.2f -> Status.warn
+                        else -> Status.danger
+                    },
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+                Text(
+                    "Attack ${pokemon.attack} · Defense ${pokemon.defense} · Speed ${pokemon.speed}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ActionRow {
+                    LexButton(
+                        "Use potion",
+                        onClick = { viewModel.heal("POTION") },
+                        enabled = !state.saving && !pokemon.fainted && pokemon.currentHp < pokemon.hp,
+                    )
+                    LexButton("Use revive", onClick = { viewModel.heal("REVIVE") }, enabled = !state.saving && pokemon.fainted)
+                }
+            }
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                OutlinedTextField(
+                    nickname,
+                    onNickname,
+                    label = { Text("Nickname") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ActionRow {
+                    LexButton(
+                        "Save name",
+                        onClick = { viewModel.nickname(nickname.trim()) },
+                        enabled = !state.saving && nickname.trim() != pokemon.nickname,
+                    )
+                    LexButton(
+                        if (state.favourite) "Favourite" else "Add to favourites",
+                        onClick = viewModel::favourite,
+                        icon = if (state.favourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        enabled = !state.saving,
+                    )
+                    LexButton("Make buddy", onClick = viewModel::buddy, enabled = !state.saving)
+                }
+            }
+        }
+
+        if (state.evolutions.isNotEmpty()) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Text("Evolution", style = MaterialTheme.typography.titleMedium)
+                    state.evolutions.forEach { option ->
+                        ListRow(
+                            action = {
+                                LexButton(
+                                    "Evolve",
+                                    onClick = { viewModel.evolve(option) },
+                                    tone = LexTone.Primary,
+                                    enabled = option.eligible && !state.saving,
+                                )
+                            },
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(option.evolvesToName, style = MaterialTheme.typography.bodyLarge)
+                                if (option.reason.isNotBlank()) {
+                                    Text(option.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button({ viewModel.heal("POTION") }, enabled = !state.saving && !pokemon.fainted && pokemon.currentHp < pokemon.hp) { Text("Use potion") }
-                        Button({ viewModel.heal("REVIVE") }, enabled = !state.saving && pokemon.fainted) { Text("Use revive") }
-                    }
-                    if (state.evolutions.isNotEmpty()) Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                        Text("Evolution", style = MaterialTheme.typography.titleMedium)
-                        state.evolutions.forEach { option -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) { Text("Evolve into ${option.evolvesToName}"); Text(option.reason, style = MaterialTheme.typography.labelSmall) }
-                            Button({ viewModel.evolve(option) }, enabled = option.eligible && !state.saving) { Text("Evolve") }
-                        } }
-                    } }
-                    state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 }
             }
         }

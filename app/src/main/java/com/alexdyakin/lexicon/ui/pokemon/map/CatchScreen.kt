@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.ui.pokemon.map
 
+import com.alexdyakin.lexicon.ui.theme.ThrowQualityColors
+import com.alexdyakin.lexicon.data.userMessage
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -229,7 +231,8 @@ private fun CatchArena(
                         ThrowPhase.BrokeFree(result.message.ifEmpty { "It broke free!" })
                     }
                 },
-                onFailure = { ThrowPhase.BrokeFree(it.message ?: "The throw did not register.") },
+                // A failed request is not the Pokémon breaking free; say what went wrong.
+                onFailure = { ThrowPhase.BrokeFree(it.userMessage("The throw didn't go through. Try again.")) },
             )
         }
     }
@@ -282,9 +285,9 @@ private fun CatchArena(
         // Target ring, drawn under the sprite so the sprite reads as being inside it.
         if (arena != Offset.Zero && phase == ThrowPhase.Aiming) {
             val ringColor = when {
-                ringFraction < 0.45f -> Color(0xFFFDE047)
-                ringFraction < 0.62f -> Color(0xFF93C5FD)
-                else -> Color(0xFF86EFAC)
+                ringFraction < 0.45f -> ThrowQualityColors.Excellent
+                ringFraction < 0.62f -> ThrowQualityColors.Great
+                else -> ThrowQualityColors.Nice
             }
             Canvas(Modifier.fillMaxSize()) {
                 drawCircle(
@@ -512,9 +515,9 @@ private fun CatchHeader(spawn: PokemonSpawn, tier: String, onClose: () -> Unit) 
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Black,
                 color = when (tier) {
-                    "Excellent" -> Color(0xFFFDE047)
-                    "Great" -> Color(0xFF93C5FD)
-                    else -> Color(0xFF86EFAC)
+                    "Excellent" -> ThrowQualityColors.Excellent
+                    "Great" -> ThrowQualityColors.Great
+                    else -> ThrowQualityColors.Nice
                     },
                 )
             }

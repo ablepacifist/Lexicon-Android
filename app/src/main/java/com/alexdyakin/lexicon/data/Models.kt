@@ -538,6 +538,8 @@ data class CaughtPokemon(
     val defense: Int = 0,
     val speed: Int = 0,
     val nickname: String = "",
+    /** Starred by the player; the detail screen's button starts from this. */
+    val favourite: Boolean = false,
 ) {
     val displayName: String get() = nickname.ifBlank { speciesName }
     val fainted: Boolean get() = currentHp <= 0

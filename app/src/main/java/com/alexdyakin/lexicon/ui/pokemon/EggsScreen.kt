@@ -1,5 +1,6 @@
 package com.alexdyakin.lexicon.ui.pokemon
 
+import com.alexdyakin.lexicon.ui.theme.EggColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -72,7 +73,7 @@ fun EggsScreen(onBack: () -> Unit, viewModel: EggsViewModel = hiltViewModel()) {
 
 @Composable private fun EggCard(egg: PlayerEgg, saving: Boolean, incubate: (PlayerEgg) -> Unit) {
     val progress = if (egg.distanceKm == 0.0) 0f else (egg.progressKm / egg.distanceKm).toFloat().coerceIn(0f, 1f)
-    val color = when (egg.distanceKm.toInt()) { 2 -> Color(0xFF74C69D); 5 -> Color(0xFFF4A261); else -> Color(0xFFC77DFF) }
+    val color = when (egg.distanceKm.toInt()) { 2 -> EggColors.TwoKm; 5 -> EggColors.FiveKm; else -> EggColors.Long }
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("${egg.distanceKm.toInt()} km Egg", style = MaterialTheme.typography.titleMedium, color = color)
         Text(if (egg.incubating) "Incubating" else "Stored egg")

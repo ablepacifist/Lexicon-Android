@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.ui.pokemon.map
 
+import com.alexdyakin.lexicon.ui.theme.BallColors
+import com.alexdyakin.lexicon.ui.theme.TeamColors
 import androidx.compose.ui.graphics.Color
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -40,10 +42,10 @@ object MapWorld {
 
     /** Team colours, taken from the website's `TEAM_COLOR`. */
     fun teamColor(team: String?): Color = when (team?.uppercase()) {
-        "VALOR" -> Color(0xFFEF4444)
-        "MYSTIC" -> Color(0xFF3B82F6)
-        "INSTINCT" -> Color(0xFFEAB308)
-        else -> Color(0xFF6B7280) // unclaimed
+        "VALOR" -> TeamColors.Valor
+        "MYSTIC" -> TeamColors.Mystic
+        "INSTINCT" -> TeamColors.Instinct
+        else -> TeamColors.Unclaimed
     }
 
     val TEAMS = listOf("VALOR", "MYSTIC", "INSTINCT")
@@ -70,9 +72,9 @@ object MapWorld {
 
 /** A throwable ball, in the order the website lists them. */
 enum class Ball(val type: String, val label: String, val sprite: String, val tint: Color) {
-    POKEBALL("POKEBALL", "Poké Ball", "pokeball_sprite.png", Color(0xFFEF4444)),
-    GREAT_BALL("GREAT_BALL", "Great Ball", "greatball_sprite.png", Color(0xFF3B82F6)),
-    ULTRA_BALL("ULTRA_BALL", "Ultra Ball", "ultraball_sprite.png", Color(0xFFF59E0B));
+    POKEBALL("POKEBALL", "Poké Ball", "pokeball_sprite.png", BallColors.Poke),
+    GREAT_BALL("GREAT_BALL", "Great Ball", "greatball_sprite.png", BallColors.Great),
+    ULTRA_BALL("ULTRA_BALL", "Ultra Ball", "ultraball_sprite.png", BallColors.Ultra);
 
     companion object {
         fun of(type: String?): Ball =

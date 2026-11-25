@@ -1,5 +1,6 @@
 package com.alexdyakin.lexicon.ui.components
 
+import com.alexdyakin.lexicon.ui.theme.LaunchColors
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutBack
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -37,8 +38,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.joinAll
 
 /** Red pulled from the cube's own rune glow, so the drawn ring belongs to the artwork. */
-private val RuneRed = Color(0xFFE03A2F)
-private val RuneEmber = Color(0xFFFF7A45)
+private val RuneRed = LaunchColors.RuneRed
+private val RuneEmber = LaunchColors.RuneEmber
 
 /**
  * The cold-start sequence: the sigil arrives, a ring of runes is inscribed around it,
@@ -104,7 +105,7 @@ fun LaunchSequence(onFinished: () -> Unit) {
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    listOf(Color(0xFF1A1512), Color(0xFF070605)),
+                    listOf(LaunchColors.StoneTop, LaunchColors.StoneBottom),
                 ),
             )
             .alpha(exitAlpha.value),

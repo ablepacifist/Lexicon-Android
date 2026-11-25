@@ -1,5 +1,8 @@
 package com.alexdyakin.lexicon.ui.login
 
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,7 +90,7 @@ fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hil
     Box(Modifier.fillMaxSize()) {
         AuthBackground()
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
+            Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -98,8 +101,8 @@ fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hil
                 OutlinedTextField(state.username, { viewModel.update { s -> s.copy(username = it) } }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 OutlinedTextField(state.displayName, { viewModel.update { s -> s.copy(displayName = it) } }, label = { Text("Display name (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 OutlinedTextField(state.email, { viewModel.update { s -> s.copy(email = it) } }, label = { Text("Email (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
-                OutlinedTextField(state.password, { viewModel.update { s -> s.copy(password = it) } }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
-                OutlinedTextField(state.confirmPassword, { viewModel.update { s -> s.copy(confirmPassword = it) } }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
+                OutlinedTextField(state.password, { viewModel.update { s -> s.copy(password = it) } }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
+                OutlinedTextField(state.confirmPassword, { viewModel.update { s -> s.copy(confirmPassword = it) } }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Button(onClick = { viewModel.register(onBackToLogin) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
                     if (state.loading) CircularProgressIndicator() else Text("Create account")

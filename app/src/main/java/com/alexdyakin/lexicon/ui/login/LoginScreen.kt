@@ -1,5 +1,8 @@
 package com.alexdyakin.lexicon.ui.login
 
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -54,9 +57,14 @@ fun LoginScreen(
     Box(Modifier.fillMaxSize()) {
         AuthBackground()
 
+        // Scrolls, and stays above the keyboard. It was a fixed, centred column, so with the
+        // keyboard open (or at a larger font size) the Sign in button sat under the keyboard.
+        BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
                 .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -123,7 +131,7 @@ fun LoginScreen(
                         visualTransformation =
                             if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None
                             else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { viewModel.login(onLoggedIn) }),
                         trailingIcon = {
                             TextButton(onClick = { passwordVisible = !passwordVisible }) {
@@ -172,6 +180,7 @@ fun LoginScreen(
                     }
                 }
             }
+        }
         }
     }
 }

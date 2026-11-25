@@ -1,5 +1,7 @@
 package com.alexdyakin.lexicon.ui.login
 
+import kotlinx.coroutines.CancellationException
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alexdyakin.lexicon.data.LoginRequest
@@ -56,9 +58,10 @@ class LoginViewModel @Inject constructor(
                 if (token.isNullOrEmpty()) {
                     // Login worked but no bearer token came back — almost always an older
                     // LexiconServer without the mobile branch.
+                    Log.w("Lexicon", "Login succeeded without a mobileToken; is LexiconServer up to date?")
                     _state.value = _state.value.copy(
                         loading = false,
-                        error = "Server did not return a mobile token. Is LexiconServer up to date?",
+                        error = "Signed in, but the server didn't start a session for the app. Please try again later.",
                     )
                     return@launch
                 }
@@ -72,16 +75,22 @@ class LoginViewModel @Inject constructor(
                 _state.value = _state.value.copy(loading = false, password = "")
                 onSuccess()
 
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: HttpException) {
                 _state.value = _state.value.copy(
                     loading = false,
-                    error = if (e.code() == 401) "Invalid username or password."
-                            else "Login failed (HTTP ${e.code()}).",
+                    error = when (e.code()) {
+                        400, 401 -> "Wrong username or password."
+                        429 -> "Too many attempts. Wait a minute, then try again."
+                        else -> "The server had a problem signing you in. Please try again in a moment."
+                    },
                 )
             } catch (e: Exception) {
+                Log.w("Lexicon", "Login failed", e)
                 _state.value = _state.value.copy(
                     loading = false,
-                    error = "Could not reach the server. ${e.message ?: ""}".trim(),
+                    error = "Couldn't reach the server. Check your connection and try again.",
                 )
             }
         }

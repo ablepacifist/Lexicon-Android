@@ -11,16 +11,7 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// The google-services plugin hard-fails when google-services.json is absent, which
-// would break every build and CI run for anyone who has not set up Firebase yet.
-// Applying it only when the file is present keeps the app buildable; push simply
-// stays inactive until the file is dropped into app/.
-val hasFirebaseConfig = file("google-services.json").exists()
-if (hasFirebaseConfig) {
-    apply(plugin = "com.google.gms.google-services")
-}
-
-// ── Destination registry ──────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Destination registry Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 //
 // The app ships to customers as a compiled APK - they never type a server address, so
 // every network destination has to be baked in at build time, from the same registry
@@ -152,7 +143,16 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: shrinks and optimises code, then drops resources nothing references.
+            // Keep rules for the reflective and JNI libraries are in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Phones only. Every device the app ships to is ARM; the x86 builds of the
+            // ONNX and Vosk runtimes were tens of MB in every download. Debug keeps all
+            // four ABIs so emulators still run it.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             if (
                 !releaseKeystoreFile.isNullOrBlank() &&
                 !releaseKeystorePassword.isNullOrBlank() &&
@@ -226,10 +226,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
-    // Push notifications. Safe to compile without google-services.json - the code
-    // guards on FirebaseApp being initialised before touching any of it.
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.messaging)
 
     // Media3: background playback, lock-screen/Bluetooth controls, seeking
     implementation(libs.androidx.media3.exoplayer)
@@ -271,7 +267,7 @@ configurations.configureEach {
     }
 }
 
-// ── Lexi on-device models ─────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Lexi on-device models Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 //
 // The wake-word models (3.7 MB) ship inside the APK. They are downloaded at build time
 // rather than committed, and pinned by SHA-256, so a build can never quietly pick up a
@@ -384,4 +380,20 @@ androidComponents {
 tasks.withType<Test>().configureEach {
     dependsOn(downloadLexiModels)
     systemProperty("lexi.models", lexiModelCache.asFile.absolutePath)
+}
+
+// A release built without APP_VERSION_CODE is stamped 1 / "0.1.0". Published, every phone
+// would see itself as newer than the server's build, or the updater would offer the same
+// build forever. Refuse rather than ship that; -PallowDefaultVersion for a throwaway build.
+tasks.matching { it.name in setOf("assembleRelease", "bundleRelease") }.configureEach {
+    val hasVersion = providers.environmentVariable("APP_VERSION_CODE").orNull?.trim()?.toIntOrNull() != null
+    val allowDefault = project.hasProperty("allowDefaultVersion")
+    doFirst {
+        if (!hasVersion && !allowDefault) {
+            throw GradleException(
+                "Release builds need APP_VERSION_CODE (and APP_VERSION_NAME). " +
+                    "Pass -PallowDefaultVersion for a local test build that will not be published."
+            )
+        }
+    }
 }

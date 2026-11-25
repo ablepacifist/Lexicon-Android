@@ -105,6 +105,11 @@ jobs:
             echo "APP_RELEASE_KEYSTORE_TYPE=JKS"
           } >> "$GITHUB_ENV"
 
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          bash ./gradlew --no-daemon testDebugUnitTest
+
       - name: Build release APK
         env:
           # Stamped into the APK manifest so it matches the metadata published

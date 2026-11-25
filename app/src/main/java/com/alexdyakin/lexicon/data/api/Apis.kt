@@ -67,7 +67,6 @@ import com.alexdyakin.lexicon.data.SsoTokenResponse
 import com.alexdyakin.lexicon.data.AvatarResponse
 import com.alexdyakin.lexicon.data.RemoveAvatarRequest
 import com.alexdyakin.lexicon.data.AppNotification
-import com.alexdyakin.lexicon.data.DeviceTokenRequest
 import com.alexdyakin.lexicon.data.UnreadNotificationCount
 import com.alexdyakin.lexicon.data.PokemonSpecies
 import com.alexdyakin.lexicon.data.PlayerItem
@@ -341,10 +340,6 @@ interface NotificationApi {
     @GET("api/notifications/unread-count") suspend fun unreadCount(@Query("userId") userId: Int): UnreadNotificationCount
     @POST("api/notifications/read-all") suspend fun markAllRead(@Query("userId") userId: Int)
 
-    // Push device registration. Backend stores one row per (userId, token).
-    @POST("api/notifications/device-token") suspend fun registerDeviceToken(@Body body: DeviceTokenRequest)
-    @HTTP(method = "DELETE", path = "api/notifications/device-token", hasBody = true)
-    suspend fun unregisterDeviceToken(@Body body: DeviceTokenRequest)
 }
 
 interface AlchemyApi {

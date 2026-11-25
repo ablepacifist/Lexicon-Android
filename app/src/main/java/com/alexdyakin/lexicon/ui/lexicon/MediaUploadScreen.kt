@@ -1,9 +1,7 @@
 package com.alexdyakin.lexicon.ui.lexicon
 
-import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -77,6 +75,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
+import com.alexdyakin.lexicon.data.enqueueMediaDownload
+import com.alexdyakin.lexicon.ui.components.ConfirmDialog
+import com.alexdyakin.lexicon.data.di.ForUploads
+import com.alexdyakin.lexicon.data.fileNameFor
+import com.alexdyakin.lexicon.data.uploadBody
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
@@ -109,6 +116,8 @@ data class MediaUploadUiState(
 @HiltViewModel
 class MediaUploadViewModel @Inject constructor(
     private val api: MediaApi,
+    @ForUploads private val uploadApi: MediaApi,
+    @ApplicationContext private val context: Context,
     private val playlistApi: PlaylistApi,
     private val torrentApi: TorrentApi,
     private val tokenStore: TokenStore,
@@ -119,9 +128,19 @@ class MediaUploadViewModel @Inject constructor(
 
     val authToken: String get() = tokenStore.token.orEmpty()
 
-    fun file(bytes: ByteArray, filename: String, contentType: String?, title: String, description: String, isPublic: Boolean, type: String) = send {
-        val part = MultipartBody.Part.createFormData("file", filename, bytes.toRequestBody(contentType?.toMediaTypeOrNull()))
-        api.upload(part, tokenStore.userId.toString().toRequestBody(), title.toRequestBody(), description.toRequestBody(), isPublic.toString().toRequestBody(), type.toRequestBody())
+    /**
+     * Edit and Delete belong to the uploader; the server refuses anyone else. They were offered
+     * on every public file, so a tap ended in "Only the uploader can delete this media."
+     */
+    fun canManage(media: MediaFile): Boolean =
+        _state.value.browseSource == BrowseSource.MY || media.uploadedBy == tokenStore.userId
+
+    /** Streams the picked file; see [com.alexdyakin.lexicon.data.UriRequestBody]. */
+    fun file(uri: Uri, title: String, description: String, isPublic: Boolean, type: String) = send {
+        val resolver = context.contentResolver
+        val filename = withContext(Dispatchers.IO) { resolver.fileNameFor(uri, "media") }
+        val part = MultipartBody.Part.createFormData("file", filename, resolver.uploadBody(uri))
+        uploadApi.upload(part, tokenStore.userId.toString().toRequestBody(), title.toRequestBody(), description.toRequestBody(), isPublic.toString().toRequestBody(), type.toRequestBody())
     }
 
     fun link(url: String, title: String, description: String, isPublic: Boolean, type: String, downloadType: String) = send { api.uploadFromUrl(url, tokenStore.userId, title, description, isPublic, type, downloadType) }
@@ -220,8 +239,14 @@ class MediaUploadViewModel @Inject constructor(
         }
     }
 
-    fun submitTorrentFile(bytes: ByteArray, filename: String, title: String, isPublic: Boolean) =
+    fun submitTorrentFile(uri: Uri, title: String, isPublic: Boolean) =
         submitTorrent {
+            // A .torrent is a few kilobytes, so reading it whole is fine, but not on the main thread.
+            val (filename, bytes) = withContext(Dispatchers.IO) {
+                val resolver = context.contentResolver
+                resolver.fileNameFor(uri, "upload.torrent") to
+                    (resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IOException("Could not read that file."))
+            }
             val part = MultipartBody.Part.createFormData(
                 "file", filename, bytes.toRequestBody("application/x-bittorrent".toMediaTypeOrNull()))
             torrentApi.submitFile(
@@ -340,6 +365,8 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
     var searchQuery by remember { mutableStateOf("") }
     var filterType by remember { mutableStateOf("ALL") }
     var editTarget by remember { mutableStateOf<MediaFile?>(null) }
+    var deleteTarget by remember { mutableStateOf<MediaFile?>(null) }
+    var removeTorrentTarget by remember { mutableStateOf<TorrentProgress?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected -> uri = selected }
 
@@ -354,9 +381,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
         if (selected != null) {
             torrentUrl = ""
             if (torrentTitle.isBlank()) {
-                torrentTitle = (selected.lastPathSegment ?: "")
-                    .substringAfterLast('/')
-                    .removeSuffix(".torrent")
+                torrentTitle = context.contentResolver.fileNameFor(selected, "").removeSuffix(".torrent")
             }
         }
     }
@@ -379,6 +404,25 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
     val filtered = remember(state.mediaFiles, filterType) {
         if (filterType == "ALL") state.mediaFiles
         else state.mediaFiles.filter { (it.mediaType.ifBlank { "OTHER" }).equals(filterType, ignoreCase = true) }
+    }
+
+    deleteTarget?.let { target ->
+        ConfirmDialog(
+            title = "Delete \"${target.displayTitle}\"?",
+            message = "The file is removed from the server for everyone. This cannot be undone.",
+            confirmLabel = "Delete",
+            onConfirm = { viewModel.deleteMedia(target.id) },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+    removeTorrentTarget?.let { target ->
+        ConfirmDialog(
+            title = "Remove this download?",
+            message = "The torrent stops and leaves the list.",
+            confirmLabel = "Remove",
+            onConfirm = { viewModel.removeTorrent(target.infoHash) },
+            onDismiss = { removeTorrentTarget = null },
+        )
     }
 
     editTarget?.let { target ->
@@ -438,7 +482,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                                 text = if (uri == null) {
                                     "Choose audio or video"
                                 } else {
-                                    "Selected: ${uri?.lastPathSegment ?: "file"}"
+                                    "Selected: ${uri?.let { context.contentResolver.fileNameFor(it, "file") } ?: "file"}"
                                 },
                                 onClick = { picker.launch(arrayOf("audio/*", "video/*")) },
                                 tone = LexTone.Primary,
@@ -482,18 +526,13 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                                     viewModel.link(url, title, description, public, mediaType, downloadType)
                                 } else {
                                     uri?.let { selected ->
-                                        val bytes = context.contentResolver.openInputStream(selected)?.use { it.readBytes() }
-                                        if (bytes != null) {
-                                            viewModel.file(
-                                                bytes = bytes,
-                                                filename = selected.lastPathSegment?.substringAfterLast('/') ?: "media",
-                                                contentType = context.contentResolver.getType(selected),
-                                                title = title,
-                                                description = description,
-                                                isPublic = public,
-                                                type = mediaType,
-                                            )
-                                        }
+                                        viewModel.file(
+                                            uri = selected,
+                                            title = title,
+                                            description = description,
+                                            isPublic = public,
+                                            type = mediaType,
+                                        )
                                     }
                                 }
                             },
@@ -552,7 +591,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                             // Weighted, so the filename takes what is left of the row rather than
                             // being measured at its full length and pushing the button out.
                             Text(
-                                torrentUri?.lastPathSegment?.substringAfterLast('/') ?: "No file chosen",
+                                torrentUri?.let { context.contentResolver.fileNameFor(it, "file") } ?: "No file chosen",
                                 Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -578,20 +617,9 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                             onClick = {
                                 val chosen = torrentUri
                                 if (chosen != null) {
-                                    // A .torrent is a few kilobytes, so reading it whole is fine.
-                                    val bytes = context.contentResolver.openInputStream(chosen)?.use { it.readBytes() }
-                                    if (bytes == null) {
-                                        viewModel.messageFromScreen("Could not read that file.")
-                                    } else {
-                                        viewModel.submitTorrentFile(
-                                            bytes,
-                                            chosen.lastPathSegment?.substringAfterLast('/') ?: "upload.torrent",
-                                            torrentTitle.trim(),
-                                            torrentPublic,
-                                        )
-                                        torrentUri = null
-                                        torrentTitle = ""
-                                    }
+                                    viewModel.submitTorrentFile(chosen, torrentTitle.trim(), torrentPublic)
+                                    torrentUri = null
+                                    torrentTitle = ""
                                 } else {
                                     viewModel.submitTorrentUrl(torrentUrl.trim(), torrentTitle.trim(), torrentPublic)
                                     torrentUrl = ""
@@ -635,7 +663,7 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                         ActionRow(horizontalAlignment = Alignment.End) {
                             LexButton(
                                 text = "Remove",
-                                onClick = { viewModel.removeTorrent(torrent.infoHash) },
+                                onClick = { removeTorrentTarget = torrent },
                                 tone = LexTone.Destructive,
                                 icon = Icons.Filled.Delete,
                             )
@@ -792,22 +820,24 @@ fun MediaUploadScreen(onBack: () -> Unit, viewModel: MediaUploadViewModel = hilt
                                 ActionRow(Modifier.padding(top = Spacing.xs)) {
                                     LexButton(
                                         text = "Download",
-                                        onClick = { downloadMedia(context, media, viewModel.authToken) },
+                                        onClick = { enqueueMediaDownload(context, media, viewModel.authToken) },
                                         tone = LexTone.Primary,
                                         icon = Icons.Filled.Download,
                                     )
-                                    LexButton(
-                                        text = "Edit",
-                                        onClick = { editTarget = media },
-                                        icon = Icons.Filled.Edit,
-                                    )
-                                    LexButton(
-                                        text = "Delete",
-                                        onClick = { viewModel.deleteMedia(media.id) },
-                                        tone = LexTone.Destructive,
-                                        icon = Icons.Filled.Delete,
-                                        enabled = !state.saving,
-                                    )
+                                    if (viewModel.canManage(media)) {
+                                        LexButton(
+                                            text = "Edit",
+                                            onClick = { editTarget = media },
+                                            icon = Icons.Filled.Edit,
+                                        )
+                                        LexButton(
+                                            text = "Delete",
+                                            onClick = { deleteTarget = media },
+                                            tone = LexTone.Destructive,
+                                            icon = Icons.Filled.Delete,
+                                            enabled = !state.saving,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -912,19 +942,6 @@ private fun UploadField(
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     )
-}
-
-private fun downloadMedia(context: Context, media: MediaFile, token: String) {
-    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    val fileName = media.originalFilename.ifBlank { media.filename.ifBlank { "media_${media.id}" } }
-    val request = DownloadManager.Request(Uri.parse("${ApiUrls.LEXICON}api/media/${media.id}/download"))
-        .setTitle(media.displayTitle)
-        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-    if (token.isNotBlank()) {
-        request.addRequestHeader("Authorization", "Bearer $token")
-    }
-    downloadManager.enqueue(request)
 }
 
 @Composable

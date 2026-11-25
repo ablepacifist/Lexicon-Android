@@ -1,10 +1,6 @@
 package com.alexdyakin.lexicon.ui.lexicon
 
-import android.app.DownloadManager
-import android.content.Context
-import android.net.Uri
-import android.os.Environment
-import android.widget.Toast
+import com.alexdyakin.lexicon.data.enqueueMediaDownload
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -186,8 +182,15 @@ class DedicatedMediaPlayerViewModel @Inject constructor(
         }
     }
 
+    /** Ids from the player's own list, so their files stay editable if `uploadedBy` is missing. */
+    @Volatile private var ownIds: Set<Int> = emptySet()
+
+    /** Only the uploader may edit; the server refuses anyone else. */
+    fun canEdit(media: MediaFile): Boolean = media.uploadedBy == tokenStore.userId || media.id in ownIds
+
     private suspend fun loadLibrary(mode: DedicatedMediaMode): Pair<List<MediaFile>, String?> {
         val mine = safeApiCall { mediaApi.byUser(tokenStore.userId) }
+        mine.successOrNull?.let { list -> ownIds = list.map { it.id }.toSet() }
         val pub = safeApiCall { mediaApi.public() }
         val merged = (mine.successOrNull.orEmpty() + pub.successOrNull.orEmpty())
             .associateBy { it.id }
@@ -543,18 +546,8 @@ fun DedicatedMediaPlayerScreen(
                                     viewModel.playMedia(media)
                                     if (mode == DedicatedMediaMode.VIDEO) onOpenPlayer()
                                 },
-                                onEdit = { editing = media },
-                                onDownload = {
-                                    val url = "${ApiUrls.LEXICON}api/media/${media.id}/download"
-                                    val fileName = media.originalFilename.ifBlank { media.filename.ifBlank { "media_${media.id}" } }
-                                    val request = DownloadManager.Request(Uri.parse(url))
-                                        .addRequestHeader("Authorization", "Bearer ${viewModel.bearerToken}")
-                                        .setTitle(media.displayTitle)
-                                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                                    (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
-                                    Toast.makeText(context, "Downloading ${media.displayTitle}", Toast.LENGTH_SHORT).show()
-                                },
+                                onEdit = if (viewModel.canEdit(media)) ({ editing = media }) else null,
+                                onDownload = { enqueueMediaDownload(context, media, viewModel.bearerToken) },
                             )
                         }
                     }
@@ -824,7 +817,7 @@ private fun AudioItemRow(
     active: Boolean,
     isPlaying: Boolean,
     onPlay: () -> Unit,
-    onEdit: () -> Unit,
+    onEdit: (() -> Unit)?,
     onDownload: () -> Unit,
 ) {
     Surface(
@@ -861,11 +854,13 @@ private fun AudioItemRow(
                 contentDescription = "Download",
                 onClick = onDownload,
             )
-            LexIconButton(
-                icon = Icons.Filled.Edit,
-                contentDescription = "Edit",
-                onClick = onEdit,
-            )
+            if (onEdit != null) {
+                LexIconButton(
+                    icon = Icons.Filled.Edit,
+                    contentDescription = "Edit",
+                    onClick = onEdit,
+                )
+            }
         }
     }
 }

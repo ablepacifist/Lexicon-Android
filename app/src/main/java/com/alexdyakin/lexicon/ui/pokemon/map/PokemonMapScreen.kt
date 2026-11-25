@@ -1,6 +1,14 @@
 package com.alexdyakin.lexicon.ui.pokemon.map
 
+import com.alexdyakin.lexicon.ui.theme.MapColors
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -34,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,20 +91,35 @@ fun PokemonMapScreen(
     // Follow until the player drags the map themselves.
     val followPlayer = map?.userMoved != true
 
+    val context = LocalContext.current
+    // Asked once per visit. It used to be keyed to every resume, so refusing re-opened the
+    // system dialog each time the app came back to the front.
+    var askedForLocation by rememberSaveable { mutableStateOf(false) }
+    // After "Don't ask again" the system dialog no longer appears at all; only Settings can help.
+    var locationBlocked by rememberSaveable { mutableStateOf(false) }
     val requestLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { viewModel.refreshPermission() }
+    ) { grants ->
+        viewModel.refreshPermission()
+        val granted = grants.values.any { it }
+        val activity = context as? Activity
+        locationBlocked = !granted && activity != null &&
+            !activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    val askForLocation = {
+        askedForLocation = true
+        requestLocation.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
+    }
 
-    // Asks once on arrival; the gate below covers a refusal.
-    LaunchedWhileResumed(state.permissionGranted) {
-        if (!state.permissionGranted) {
-            requestLocation.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
-        }
+    LaunchedWhileResumed(Unit) {
+        // Permission and the location switch can both change in Settings while we are away.
+        viewModel.refreshPermission()
+        if (!askedForLocation && !viewModel.state.value.permissionGranted) askForLocation()
     }
 
     // GPS and polling both stop when the screen is not resumed. `GET /nearby` seeds new
@@ -136,23 +161,34 @@ fun PokemonMapScreen(
                     title = "Location needed",
                     body = "The map shows what is around you, so it needs your location. " +
                         "Nothing is stored on the device beyond the current fix.",
-                    action = "Grant location",
+                    action = if (locationBlocked) "Open settings" else "Grant location",
                     onAction = {
-                        requestLocation.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                            ),
-                        )
+                        if (locationBlocked) {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null),
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        } else {
+                            askForLocation()
+                        }
                     },
                 )
 
                 !state.locationEnabled -> LocationGate(
                     title = "Location is switched off",
-                    body = "Turn location on in system settings and come back — no " +
-                        "provider can give a fix while it is off.",
-                    action = null,
-                    onAction = {},
+                    body = "Turn location on and come back. The map picks it up as soon " +
+                        "as you return.",
+                    action = "Location settings",
+                    onAction = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
                 )
 
                 else -> MapSurface(
@@ -166,6 +202,16 @@ fun PokemonMapScreen(
 
             // Overlaid controls and sheets
             if (state.permissionGranted && state.locationEnabled) {
+                // OpenStreetMap's tile policy requires this credit wherever its tiles are shown.
+                Text(
+                    "© OpenStreetMap contributors",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                        .padding(horizontal = Spacing.xs, vertical = 2.dp),
+                )
                 MapControls(
                     state = state,
                     following = followPlayer,
@@ -189,10 +235,10 @@ fun PokemonMapScreen(
         }
     }
 
-    // A team is asked for once, the first time the player opens the map without one,
-    // because gyms cannot be interacted with at all until they have picked.
-    if (state.permissionGranted && state.team.isEmpty() && state.gyms.isNotEmpty()) {
-        TeamPickerDialog(onPick = viewModel::setTeam)
+    // Asked when the server says the player has no team, because gyms do nothing until
+    // they pick. "Not now" closes it for this visit.
+    if (state.permissionGranted && state.needsTeam) {
+        TeamPickerDialog(onPick = viewModel::setTeam, onDismiss = viewModel::dismissTeamPicker)
     }
 
     state.pendingPlacement?.let { point ->
@@ -385,16 +431,24 @@ private fun StopMarker(
 ) {
     val lured = stop.lureExpiresAt != null
     val tint = when {
-        lured -> Color(0xFFEC4899)
+        lured -> MapColors.Lure
         stop.canSpin && inRange -> MaterialTheme.colorScheme.primary
-        else -> Color(0xFF6B7280)
+        else -> MapColors.Inactive
     }
-    MarkerSlot(at, size = 32.dp) {
+    // Drawn at 32dp, tapped at 48dp: the tap area is the minimum touch size around it.
+    MarkerSlot(at, size = Sizes.touch) {
+        Box(
+            Modifier
+                .size(Sizes.touch)
+                .clickable(onClick = onClick, role = Role.Button)
+                .semantics { contentDescription = "Pokéstop ${stop.name}" },
+            contentAlignment = Alignment.Center,
+        ) {
         Surface(
             shape = CircleShape,
             color = tint,
             border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
-            modifier = Modifier.size(32.dp).clickable(onClick = onClick),
+            modifier = Modifier.size(32.dp),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -403,6 +457,7 @@ private fun StopMarker(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
+        }
         }
     }
 }
@@ -414,12 +469,20 @@ private fun GymMarker(
     inRange: Boolean,
     onClick: () -> Unit,
 ) {
-    MarkerSlot(at, size = 40.dp, anchorBottom = true) {
+    // Drawn at 40dp, tapped at 48dp, still standing on its coordinate.
+    MarkerSlot(at, size = Sizes.touch, anchorBottom = true) {
+        Box(
+            Modifier
+                .size(Sizes.touch)
+                .clickable(onClick = onClick, role = Role.Button)
+                .semantics { contentDescription = "Gym ${gym.name}" },
+            contentAlignment = Alignment.BottomCenter,
+        ) {
         Surface(
             shape = Radii.card,
             color = MapWorld.teamColor(gym.controllingTeam).copy(alpha = if (inRange) 1f else 0.5f),
             border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
-            modifier = Modifier.size(40.dp).clickable(onClick = onClick),
+            modifier = Modifier.size(40.dp),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -429,6 +492,7 @@ private fun GymMarker(
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
+        }
         }
     }
 }
@@ -562,9 +626,9 @@ private fun Toast(text: String, onDone: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun TeamPickerDialog(onPick: (String) -> Unit) {
+private fun TeamPickerDialog(onPick: (String) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = onDismiss,
         title = { Text("Pick a team") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -594,6 +658,7 @@ private fun TeamPickerDialog(onPick: (String) -> Unit) {
             }
         },
         confirmButton = {},
+        dismissButton = { LexButton("Not now", onClick = onDismiss, tone = LexTone.Secondary) },
     )
 }
 

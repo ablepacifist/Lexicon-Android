@@ -16,6 +16,8 @@ import com.alexdyakin.lexicon.data.SpinGymRequest
 import com.alexdyakin.lexicon.data.SpinStopRequest
 import com.alexdyakin.lexicon.data.WalkRequest
 import com.alexdyakin.lexicon.data.api.PokemonApi
+import com.alexdyakin.lexicon.data.attempt
+import com.alexdyakin.lexicon.data.userMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -45,6 +47,14 @@ data class PokemonMapUiState(
     val gyms: List<Gym> = emptyList(),
     val items: List<PlayerItem> = emptyList(),
     val team: String = "",
+    /**
+     * True once the server has answered /team. The picker used to open whenever that call
+     * failed, because a failure read as "no team", so a flaky connection asked a player who
+     * already had a team to pick one, in a dialog that could not be closed.
+     */
+    val teamKnown: Boolean = false,
+    /** The player closed the picker with "Not now"; asked again on the next visit. */
+    val teamPickerDismissed: Boolean = false,
     val totalKm: Double = 0.0,
     val placing: PlacingMode = PlacingMode.NONE,
     /** Where the player tapped while placing, awaiting a name. */
@@ -61,6 +71,10 @@ data class PokemonMapUiState(
         val f = fix ?: return false
         return MapWorld.distanceMeters(f.lat, f.lng, lat, lng) <= MapWorld.INTERACTION_RANGE_M
     }
+
+    /** Gyms do nothing until a team is chosen, so ask, once the server has said there is none. */
+    val needsTeam: Boolean
+        get() = teamKnown && team.isEmpty() && gyms.isNotEmpty() && !teamPickerDismissed
 
     fun metresTo(lat: Double, lng: Double): Int? {
         val f = fix ?: return null
@@ -128,7 +142,7 @@ class PokemonMapViewModel @Inject constructor(
             return
         }
         lastWalkFrom = fix
-        runCatching { api.walk(WalkRequest(fix.lat, fix.lng)) }
+        attempt { api.walk(WalkRequest(fix.lat, fix.lng)) }
             .onSuccess { result ->
                 val hatched = result.events.filter { it.type == "hatch" }
                 _state.value = _state.value.copy(
@@ -154,12 +168,13 @@ class PokemonMapViewModel @Inject constructor(
         val fix = _state.value.fix ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true)
-            val result = runCatching {
+            val result = attempt {
                 val spawns = async { api.nearbySpawns(fix.lat, fix.lng, MapWorld.FETCH_RADIUS_M) }
                 val stops = async { api.nearbyStops(fix.lat, fix.lng, MapWorld.FETCH_RADIUS_M) }
                 val gyms = async { api.nearbyGyms(fix.lat, fix.lng, MapWorld.FETCH_RADIUS_M) }
                 val items = async { api.items() }
-                val team = async { runCatching { api.team().team }.getOrDefault("") }
+                // Its own attempt: a failed /team must not hide the map, only leave the team unknown.
+                val team = async { attempt { api.team().team }.getOrNull() }
                 awaitAll(spawns, stops, gyms, items, team)
                 Triple(spawns.await(), stops.await(), gyms.await()) to
                     (items.await() to team.await())
@@ -174,13 +189,14 @@ class PokemonMapViewModel @Inject constructor(
                     stops = stops,
                     gyms = gyms,
                     items = extras.first,
-                    team = extras.second,
+                    team = extras.second ?: _state.value.team,
+                    teamKnown = _state.value.teamKnown || extras.second != null,
                     error = "",
                 )
             }.onFailure { e ->
                 _state.value = _state.value.copy(
                     loading = false,
-                    error = e.message ?: "Could not load the map.",
+                    error = e.userMessage("Could not load the map."),
                 )
             }
         }
@@ -212,7 +228,7 @@ class PokemonMapViewModel @Inject constructor(
         if (mode == PlacingMode.NONE) return
         viewModelScope.launch {
             val label = name.trim().ifEmpty { if (mode == PlacingMode.STOP) "Pokestop" else "Gym" }
-            val outcome = runCatching {
+            val outcome = attempt {
                 when (mode) {
                     PlacingMode.STOP -> {
                         // Answers a plain string, so it is closed rather than decoded.
@@ -229,7 +245,7 @@ class PokemonMapViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 placing = PlacingMode.NONE,
                 pendingPlacement = null,
-                message = outcome.getOrElse { it.message ?: "Could not place that." },
+                message = outcome.getOrElse { it.userMessage("Could not place that.") },
             )
             refresh()
         }
@@ -240,11 +256,11 @@ class PokemonMapViewModel @Inject constructor(
     fun spinStop(stop: Pokestop) {
         val fix = _state.value.fix ?: return
         viewModelScope.launch {
-            val outcome = runCatching { api.spinStop(SpinStopRequest(stop.id, fix.lat, fix.lng)) }
+            val outcome = attempt { api.spinStop(SpinStopRequest(stop.id, fix.lat, fix.lng)) }
             _state.value = _state.value.copy(
                 selection = null,
                 message = outcome.map { it.message }
-                    .getOrElse { it.message ?: "Could not spin that stop." },
+                    .getOrElse { it.userMessage("Could not spin that stop.") },
             )
             refresh()
         }
@@ -253,11 +269,11 @@ class PokemonMapViewModel @Inject constructor(
     fun spinGym(gym: Gym) {
         val fix = _state.value.fix ?: return
         viewModelScope.launch {
-            val outcome = runCatching { api.spinGym(SpinGymRequest(gym.id, fix.lat, fix.lng)) }
+            val outcome = attempt { api.spinGym(SpinGymRequest(gym.id, fix.lat, fix.lng)) }
             _state.value = _state.value.copy(
                 selection = null,
                 message = outcome.map { it.message }
-                    .getOrElse { it.message ?: "Could not spin that gym." },
+                    .getOrElse { it.userMessage("Could not spin that gym.") },
             )
             refresh()
         }
@@ -265,23 +281,27 @@ class PokemonMapViewModel @Inject constructor(
 
     fun lureStop(stop: Pokestop) {
         viewModelScope.launch {
-            val outcome = runCatching { api.lureStop(LureStopRequest(stop.id)) }
+            val outcome = attempt { api.lureStop(LureStopRequest(stop.id)) }
             _state.value = _state.value.copy(
                 selection = null,
                 message = outcome.map { it.message }
-                    .getOrElse { it.message ?: "Could not activate a lure." },
+                    .getOrElse { it.userMessage("Could not activate a lure.") },
             )
             refresh()
         }
     }
 
+    fun dismissTeamPicker() {
+        _state.value = _state.value.copy(teamPickerDismissed = true)
+    }
+
     fun setTeam(team: String) {
         viewModelScope.launch {
-            val outcome = runCatching { api.setTeam(SetTeamRequest(team)) }
+            val outcome = attempt { api.setTeam(SetTeamRequest(team)) }
             _state.value = _state.value.copy(
                 team = outcome.map { it.team }.getOrDefault(_state.value.team),
                 message = outcome.map { "You joined Team ${it.team.lowercase().replaceFirstChar(Char::titlecase)}." }
-                    .getOrElse { it.message ?: "Could not set your team." },
+                    .getOrElse { it.userMessage("Could not set your team.") },
             )
         }
     }
@@ -297,7 +317,7 @@ class PokemonMapViewModel @Inject constructor(
         battleId: Long? = null,
     ): Result<CatchResult> {
         val fix = _state.value.fix ?: return Result.failure(IllegalStateException("No GPS fix yet."))
-        val outcome = runCatching {
+        val outcome = attempt {
             api.attemptCatch(
                 CatchRequest(
                     spawnId = spawn.id, lat = fix.lat, lng = fix.lng,
@@ -306,7 +326,7 @@ class PokemonMapViewModel @Inject constructor(
             )
         }
         // Balls and berries were spent whether or not it was caught.
-        runCatching { api.items() }.onSuccess { _state.value = _state.value.copy(items = it) }
+        attempt { api.items() }.onSuccess { _state.value = _state.value.copy(items = it) }
         outcome.onSuccess { result ->
             if (result.success) {
                 _state.value = _state.value.copy(

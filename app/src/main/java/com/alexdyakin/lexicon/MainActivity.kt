@@ -1,5 +1,9 @@
 package com.alexdyakin.lexicon
 
+import com.alexdyakin.lexicon.ui.update.RequiredUpdateGate
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import com.alexdyakin.lexicon.data.SessionExpiry
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -10,7 +14,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.alexdyakin.lexicon.push.PushTokenRegistrar
 import kotlinx.coroutines.launch
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -26,12 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.alexdyakin.lexicon.data.SessionEnder
 import com.alexdyakin.lexicon.data.TokenStore
 import com.alexdyakin.lexicon.lexi.LexiService
 import com.alexdyakin.lexicon.lexi.LexiSettingsStore
@@ -43,7 +48,6 @@ import com.alexdyakin.lexicon.ui.alchemy.HoldfastScreen
 import com.alexdyakin.lexicon.ui.events.EventsScreen
 import com.alexdyakin.lexicon.ui.home.HomeScreen
 import com.alexdyakin.lexicon.ui.lexicon.LexiconScreen
-import com.alexdyakin.lexicon.ui.lexicon.MediaLibraryScreen
 import com.alexdyakin.lexicon.ui.lexicon.DedicatedMediaMode
 import com.alexdyakin.lexicon.ui.lexicon.DedicatedMediaPlayerScreen
 import com.alexdyakin.lexicon.ui.lexicon.PlayerScreen
@@ -75,7 +79,6 @@ object Routes {
     const val REGISTER = "register"
     const val HOME = "home"
     const val LEXICON = "lexicon"
-    const val LIBRARY = "library"
     const val AUDIO_PLAYER = "audio-player"
     const val AUDIO_PLAYER_MEDIA = "audio-player/{mediaId}"
     const val AUDIO_PLAYER_PLAYLIST = "audio-player/playlist/{playlistId}"
@@ -112,8 +115,9 @@ object Routes {
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var tokenStore: TokenStore
-    @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
     @Inject lateinit var lexiSettings: LexiSettingsStore
+    @Inject lateinit var sessionEnder: SessionEnder
+    @Inject lateinit var sessionExpiry: SessionExpiry
 
     // Android 13+ will not show notifications until the user grants this.
     private val requestNotificationPermission =
@@ -124,9 +128,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         askForNotificationPermission()
-        // Registering on every launch also repairs a token the backend lost or
-        // that rotated while the app was not running.
-        lifecycleScope.launch { pushTokenRegistrar.syncCurrentToken() }
 
         resumeLexi()
 
@@ -134,6 +135,8 @@ class MainActivity : ComponentActivity() {
             LexiconTheme {
                 LexiconApp(
                     tokenStore = tokenStore,
+                    sessionEnder = sessionEnder,
+                    sessionExpiry = sessionExpiry,
                     initialRoute = intent?.getStringExtra(EXTRA_ROUTE),
                     skipLaunchSequence = intent?.getBooleanExtra(EXTRA_SKIP_LAUNCH, false) == true,
                     onSignedOut = {
@@ -188,6 +191,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun LexiconApp(
     tokenStore: TokenStore,
+    sessionEnder: SessionEnder,
+    sessionExpiry: SessionExpiry,
     initialRoute: String?,
     skipLaunchSequence: Boolean = false,
     onSignedOut: () -> Unit,
@@ -200,16 +205,41 @@ private fun LexiconApp(
 
     // A stored bearer token means the session survived the app being killed
     val start = remember { if (tokenStore.isLoggedIn) Routes.HOME else Routes.LOGIN }
-    val displayName = remember { tokenStore.username ?: "traveller" }
+    // Re-read on every sign-in; read once, it kept greeting the previous user.
+    var displayName by remember { mutableStateOf(tokenStore.username ?: "traveller") }
+    val scope = rememberCoroutineScope()
+    var signingOut by remember { mutableStateOf(false) }
 
     fun signOut() {
+        if (signingOut) return
+        signingOut = true
         onSignedOut()
-        tokenStore.clear()
-        navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+        scope.launch {
+            try {
+                sessionEnder.signOut()
+            } finally {
+                signingOut = false
+                sessionExpiry.reset()
+                navController.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
+            }
+        }
+    }
+
+    // The server stopped accepting this sign-in (expired, revoked, or the password changed
+    // elsewhere). Said once, then the sign-in screen, instead of every screen failing alone.
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        sessionExpiry.events.collect {
+            if (tokenStore.isLoggedIn) {
+                Toast.makeText(context, "Your session has expired. Please sign in again.", Toast.LENGTH_LONG).show()
+                signOut()
+            }
+        }
     }
 
     // Applied to every destination: forward navigation slides in from the right and
     // back pops the other way, so the stack has a sense of direction.
+    RequiredUpdateGate {
     Box(Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
@@ -239,6 +269,8 @@ private fun LexiconApp(
         composable(Routes.LOGIN) {
             LoginScreen(
                 onLoggedIn = {
+                    sessionExpiry.reset()
+                    displayName = tokenStore.username ?: "traveller"
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
@@ -264,13 +296,6 @@ private fun LexiconApp(
                 onOpen = { route -> navController.navigate(route) },
                 onOpenProfile = { navController.navigate(Routes.PROFILE) },
                 displayName = displayName,
-            )
-        }
-        composable(Routes.LIBRARY) {
-            MediaLibraryScreen(
-                onBack = { navController.popBackStack() },
-                onOpenPlayer = { navController.navigate(Routes.PLAYER) },
-                onOpenUpload = { navController.navigate(Routes.MEDIA_UPLOAD) },
             )
         }
         composable(Routes.MEDIA_UPLOAD) { MediaUploadScreen(onBack = { navController.popBackStack() }) }
@@ -403,5 +428,6 @@ private fun LexiconApp(
         if (launching) {
             LaunchSequence(onFinished = { launching = false })
         }
+    }
     }
 }

@@ -68,13 +68,19 @@ class NotificationRepository @Inject constructor(
      * Home screen's badge view model — the app's start destination — and the `EventSource` it
      * opened had no `cancel()` caller anywhere, so it stayed open for the life of the process.
      *
-     * Safe to stop while backgrounded: Web Push (FCM) is what delivers notifications when the
-     * app is not in front of the user, and `start()` refreshes the feed when they return.
+     * Stopped while backgrounded: the app has no push, so nothing arrives while it is closed,
+     * and `start()` refreshes the feed when the user returns.
      */
     fun stop() {
         eventSource?.cancel()
         eventSource = null
         streamUserId = null
+    }
+
+    /** Closes the stream and forgets the feed, so the next user never sees this one's. */
+    fun signOut() {
+        stop()
+        _feed.value = NotificationFeed()
     }
 
     private fun connectStream(userId: Int) {
@@ -126,10 +132,14 @@ class NotificationRepository @Inject constructor(
             _feed.update {
                 it.copy(
                     loading = false,
-                    items = history.successOrNull.orEmpty(),
-                    unreadCount = unread.successOrNull?.count ?: 0,
-                    message = (history as? ApiResult.Failure)?.message
-                        ?: (unread as? ApiResult.Failure)?.message,
+                    // A failed refresh keeps the list already shown instead of emptying it.
+                    items = history.successOrNull ?: it.items,
+                    unreadCount = unread.successOrNull?.count ?: it.unreadCount,
+                    message = when {
+                        history is ApiResult.Failure -> history.message
+                        history is ApiResult.Unauthorized -> "Your session has expired. Sign in again to see notifications."
+                        else -> (unread as? ApiResult.Failure)?.message
+                    },
                 )
             }
         }
@@ -144,20 +154,5 @@ class NotificationRepository @Inject constructor(
 
         is ApiResult.Failure -> result.message
         ApiResult.Unauthorized -> "Sign in again to manage notifications."
-    }
-
-    /** Called when a push arrives so the badge updates without waiting for a refresh. */
-    fun onPushReceived(notification: AppNotification?) {
-        if (notification == null) {
-            _feed.update { it.copy(unreadCount = it.unreadCount + 1) }
-            return
-        }
-        _feed.update { current ->
-            if (current.items.any { it.id == notification.id }) current
-            else current.copy(
-                items = listOf(notification) + current.items,
-                unreadCount = current.unreadCount + 1,
-            )
-        }
     }
 }

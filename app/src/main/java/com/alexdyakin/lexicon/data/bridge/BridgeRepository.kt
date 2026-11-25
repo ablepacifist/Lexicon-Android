@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -179,6 +180,21 @@ class BridgeRepository @Inject constructor(
 
     fun stop() {
         connection.stop()
+    }
+
+    /**
+     * Sign-out. [stop] alone closed the socket but left `started` set and every channel, DM
+     * and message in [state], so the next person to sign in on the phone saw the previous
+     * user's chats and their own [start] did nothing.
+     */
+    fun signOut() {
+        connection.stop()
+        scope.coroutineContext.cancelChildren()
+        typingExpiry.values.forEach { it.cancel() }
+        typingExpiry.clear()
+        started = false
+        lastTypingSentAt = 0L
+        _state.value = BridgeChatState()
     }
 
     fun selectChannel(channelId: Int) {

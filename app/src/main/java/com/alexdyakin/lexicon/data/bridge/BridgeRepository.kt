@@ -25,6 +25,8 @@ data class ChatLine(
     /** Set on IMAGE and GIF messages. */
     val attachment: ChatAttachment? = null,
     val replyToId: String? = null,
+    /** Who and what this line replies to, as the bridge sent it. */
+    val replyTo: ReplyPreview? = null,
     /** Set only for a line this device sent that the server has not echoed yet. */
     val pending: Boolean = false,
 )
@@ -43,6 +45,8 @@ data class BridgeChatState(
     val channels: List<BridgeChannel> = emptyList(),
     val selectedChannelId: Int? = null,
     val messages: List<ChatLine> = emptyList(),
+    /** The message the next send replies to, chosen with a long-press. */
+    val replyingTo: ChatLine? = null,
     val loadingHistory: Boolean = false,
     /** Web/mobile clients, keyed by "web_<userId>". */
     val webClients: List<WebClient> = emptyList(),
@@ -180,7 +184,7 @@ class BridgeRepository @Inject constructor(
     fun selectChannel(channelId: Int) {
         if (_state.value.selectedChannelId == channelId) return
         _state.update {
-            it.copy(selectedChannelId = channelId, messages = emptyList(), loadingHistory = true)
+            it.copy(selectedChannelId = channelId, messages = emptyList(), loadingHistory = true, replyingTo = null)
         }
         scope.launch {
             connection.send(JoinChannelCommand(channelId))
@@ -193,7 +197,22 @@ class BridgeRepository @Inject constructor(
         val channelId = _state.value.selectedChannelId ?: return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        scope.launch { connection.send(SendTextCommand(channelId, trimmed)) }
+        val replyTo = _state.value.replyingTo?.id
+        _state.update { it.copy(replyingTo = null) }
+        scope.launch { connection.send(SendTextCommand(channelId, trimmed, replyTo)) }
+    }
+
+    /**
+     * Marks [line] as the message the next send replies to. Only lines with a real Lexicon
+     * id can be replied to; a relay that could not be stored has nothing to point at.
+     */
+    fun startReply(line: ChatLine) {
+        if (!canReplyTo(line)) return
+        _state.update { it.copy(replyingTo = line) }
+    }
+
+    fun cancelReply() {
+        _state.update { it.copy(replyingTo = null) }
     }
 
     /** Pages further back, using the oldest held message as the cursor. */
@@ -651,7 +670,8 @@ class BridgeRepository @Inject constructor(
 
         _state.update { current ->
             val existing = current.messages.associateBy { it.id }
-            val merged = (lines.filterNot { existing.containsKey(it.id) } + current.messages)
+            val incoming = lines.filterNot { existing.containsKey(it.id) }
+            val merged = (incoming + withoutIdlessCopies(current.messages, incoming))
                 .sortedBy { it.timestamp }
             current.copy(messages = merged, loadingHistory = false)
         }
@@ -668,6 +688,7 @@ class BridgeRepository @Inject constructor(
             timestamp = event.timestamp,
             origin = event.origin,
             replyToId = event.replyToId,
+            replyTo = event.replyTo,
         )
         _state.update { current ->
             if (current.messages.any { it.id == line.id }) current
@@ -767,6 +788,24 @@ private const val TAG = "BridgeRepository"
 private const val TYPING_THROTTLE_MS = 3_000L
 private const val TYPING_EXPIRE_MS = 8_000L
 
+/** Only a line with a real Lexicon id (all digits) can be the target of a reply. */
+internal fun canReplyTo(line: ChatLine): Boolean = line.id.isNotEmpty() && line.id.all { it.isDigit() }
+
+/**
+ * Drops live lines that had no id (the bridge could not store them) once history brings the
+ * same message back with one, so it is not shown twice. Matched on author and text, once per
+ * history line.
+ */
+internal fun withoutIdlessCopies(current: List<ChatLine>, incoming: List<ChatLine>): List<ChatLine> {
+    val pending = incoming.groupingBy { it.username to it.text }.eachCount().toMutableMap()
+    return current.filterNot { line ->
+        if (canReplyTo(line)) return@filterNot false
+        val key = line.username to line.text
+        val n = pending[key] ?: 0
+        if (n <= 0) false else { pending[key] = n - 1; true }
+    }
+}
+
 private fun BridgeMessage.toChatLine() = ChatLine(
     id = id,
     username = username,
@@ -776,4 +815,5 @@ private fun BridgeMessage.toChatLine() = ChatLine(
     isPinned = isPinned,
     attachment = attachment,
     replyToId = replyToId,
+    replyTo = replyTo,
 )

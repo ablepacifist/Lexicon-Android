@@ -103,6 +103,8 @@ import com.alexdyakin.lexicon.voice.VoiceSession
 import com.alexdyakin.lexicon.voice.VoiceState
 import com.alexdyakin.lexicon.data.bridge.ChannelRow
 import com.alexdyakin.lexicon.data.bridge.ChatLine
+import com.alexdyakin.lexicon.data.bridge.ReplyPreview
+import com.alexdyakin.lexicon.data.bridge.canReplyTo
 import com.alexdyakin.lexicon.data.bridge.buildChannelRows
 import com.alexdyakin.lexicon.data.bridge.MessageOrigin
 import com.alexdyakin.lexicon.data.bridge.Reaction
@@ -125,6 +127,8 @@ class VoiceViewModel @Inject constructor(
 
     fun selectChannel(id: Int) = repository.selectChannel(id)
     fun send(text: String) = repository.sendMessage(text)
+    fun startReply(line: ChatLine) = repository.startReply(line)
+    fun cancelReply() = repository.cancelReply()
     fun loadOlder() = repository.loadOlder()
     fun dismissNotice() = repository.dismissNotice()
 
@@ -408,6 +412,7 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
                 modifier = Modifier.weight(1f),
                 onLoadOlder = viewModel::loadOlder,
                 onToggleReaction = viewModel::toggleReaction,
+                onReply = viewModel::startReply,
             )
 
             VoiceBar(
@@ -420,6 +425,10 @@ fun VoiceScreen(onBack: () -> Unit, viewModel: VoiceViewModel = hiltViewModel())
             )
 
             TypingIndicator(state.typing)
+
+            state.replyingTo?.let { target ->
+                ReplyingToBar(target, onCancel = viewModel::cancelReply)
+            }
 
             InputBar(
                 enabled = state.selectedChannelId != null && state.connection is BridgeState.Ready,
@@ -791,6 +800,7 @@ private fun MessageList(
     modifier: Modifier,
     onLoadOlder: () -> Unit,
     onToggleReaction: (String, String) -> Unit,
+    onReply: (ChatLine) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -844,6 +854,7 @@ private fun MessageList(
                     showHeader = !grouped,
                     reactions = state.reactions[line.id].orEmpty(),
                     onToggleReaction = { onToggleReaction(line.id, it) },
+                    onReply = if (canReplyTo(line)) ({ onReply(line) }) else null,
                 )
             }
         }
@@ -861,6 +872,7 @@ private fun MessageRow(
     showHeader: Boolean,
     reactions: List<Reaction>,
     onToggleReaction: (String) -> Unit,
+    onReply: (() -> Unit)? = null,
 ) {
     var picking by remember { mutableStateOf(false) }
 
@@ -904,6 +916,9 @@ private fun MessageRow(
                 }
                 Spacer(Modifier.height(2.dp))
             }
+            if (line.replyTo != null || line.replyToId != null) {
+                ReplyQuote(line.replyTo)
+            }
             Text(
                 renderMentions(line.text),
                 color = BridgeColors.textNormal,
@@ -913,6 +928,21 @@ private fun MessageRow(
             line.attachment?.let { ChatImage(it) }
             if (picking) {
                 Spacer(Modifier.height(4.dp))
+                if (onReply != null) {
+                    Text(
+                        "↩ Reply",
+                        color = BridgeColors.textLink,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable {
+                                picking = false
+                                onReply()
+                            }
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                    )
+                }
                 EmojiPicker(
                     onPick = {
                         onToggleReaction(it)
@@ -926,6 +956,78 @@ private fun MessageRow(
                 ReactionRow(reactions, onToggleReaction)
             }
         }
+    }
+}
+
+/**
+ * The "replying to" line above a reply, from the preview the bridge sends. Mirrors the
+ * web client's `.reply-preview`. A null [preview] (an older bridge) still says it is a reply.
+ */
+@Composable
+private fun ReplyQuote(preview: ReplyPreview?) {
+    val who = preview?.username
+    Row(
+        Modifier
+            .padding(bottom = 2.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(BridgeColors.bgTertiary)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("↩ ", color = BridgeColors.textMuted, fontSize = 12.sp)
+        if (who != null) {
+            Text(who.removePrefix("web_"), color = BridgeColors.headerPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                preview?.text.orEmpty(),
+                color = BridgeColors.textMuted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Text("Replying to a message", color = BridgeColors.textMuted, fontSize = 12.sp)
+        }
+    }
+}
+
+/** Shown above the input while a reply is being written, with a way to cancel it. */
+@Composable
+private fun ReplyingToBar(target: ChatLine, onCancel: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+            .background(BridgeColors.bgTertiary)
+            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Replying to ", color = BridgeColors.textMuted, fontSize = 13.sp)
+        Text(
+            target.username.removePrefix("web_"),
+            color = BridgeColors.headerPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            target.text,
+            color = BridgeColors.textMuted,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "✕",
+            color = BridgeColors.textMuted,
+            fontSize = 16.sp,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable(onClick = onCancel)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

@@ -175,6 +175,8 @@ data class BridgeMessage(
     val mediaFileId: Long? = null,
     @Serializable(with = LenientIdSerializer::class)
     val replyToId: String? = null,
+    /** Added by the bridge to every reply in history. */
+    val replyTo: ReplyPreview? = null,
     val isPinned: Boolean = false,
     /** Present on IMAGE and GIF rows; the live frame carries the same data flat. */
     val attachment: ChatAttachment? = null,
@@ -197,6 +199,20 @@ object LenientIdSerializer : KSerializer<String> {
     override fun serialize(encoder: Encoder, value: String) = encoder.encodeString(value)
 }
 
+/**
+ * The "replying to" card the bridge sends with a reply: who wrote the original and a short
+ * plain-text snippet of it. [id] is null for a Discord message the bridge never relayed,
+ * which still shows as a quote but cannot be jumped to. [username] is null when the
+ * original could not be shown (deleted, or in another channel).
+ */
+@Serializable
+data class ReplyPreview(
+    @Serializable(with = LenientIdSerializer::class)
+    val id: String? = null,
+    val username: String? = null,
+    val text: String = "",
+)
+
 /** Where a chat line came from. The bridge distinguishes these by a `source` field. */
 enum class MessageOrigin { WEB, MUMBLE, DISCORD }
 
@@ -217,6 +233,7 @@ data class TextEvent(
     val html: String? = null,
     @Serializable(with = LenientIdSerializer::class)
     val replyToId: String? = null,
+    val replyTo: ReplyPreview? = null,
     val timestamp: String = "",
     /** Absent for web messages; "mumble" or "discord" otherwise. */
     val source: String? = null,

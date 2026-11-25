@@ -13,10 +13,11 @@
 
     <!-- Voice chat -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Background media playback + its notification -->
+    <!-- ExoPlayer's wake mode (PlaybackService): keeps streaming with the screen off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Voice on the Mumble bridge captures the microphone while the app is in the
@@ -39,6 +40,7 @@
     <application
         android:name=".LexiconApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -94,23 +96,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Push notifications. exported="false" is required: only the system may
-             deliver to it. -->
-        <service
-            android:name=".push.LexiconMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
-        <!-- Used when a payload arrives without an explicit icon or channel. -->
-        <meta-data
-            android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_notification" />
-        <meta-data
-            android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="lexicon_alerts" />
     </application>
 
 </manifest>

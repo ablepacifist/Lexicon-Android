@@ -175,7 +175,11 @@ data class ConsumePotionRequest(val playerId: Int, val potionId: Int)
 data class BrewPotionRequest(val playerId: Int, val ingredientId1: Int, val ingredientId2: Int)
 
 @Serializable
-data class BrewPotionResponse(val message: String = "")
+data class BrewPotionResponse(
+    val message: String = "",
+    /** The potion that was brewed; alchemyServer sends it with the message. */
+    val potion: Potion? = null,
+)
 
 @Serializable data class Holdfast(
     val id: Int = 0,

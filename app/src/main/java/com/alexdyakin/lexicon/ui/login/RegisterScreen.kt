@@ -30,10 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.alexdyakin.lexicon.data.ApiResult
+import android.util.Log
 import com.alexdyakin.lexicon.data.RegisterRequest
 import com.alexdyakin.lexicon.data.api.AuthApi
-import com.alexdyakin.lexicon.data.safeApiCall
+import kotlinx.coroutines.CancellationException
+import retrofit2.HttpException
+import java.io.IOException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,8 +45,6 @@ import javax.inject.Inject
 
 data class RegisterUiState(
     val username: String = "",
-    val email: String = "",
-    val displayName: String = "",
     val password: String = "",
     val confirmPassword: String = "",
     val loading: Boolean = false,
@@ -66,19 +66,38 @@ class RegisterViewModel @Inject constructor(private val authApi: AuthApi) : View
             current.password != current.confirmPassword -> _state.value = current.copy(error = "Passwords do not match.")
             else -> viewModelScope.launch {
                 _state.value = current.copy(loading = true, error = null)
-                when (val result = safeApiCall {
+                val error = try {
                     authApi.register(RegisterRequest(
                         username = current.username.trim(), password = current.password,
-                        confirmPassword = current.confirmPassword, email = current.email.trim(),
-                        displayName = current.displayName.trim(),
+                        confirmPassword = current.confirmPassword,
                     ))
-                }) {
-                    is ApiResult.Success -> onRegistered()
-                    is ApiResult.Failure -> _state.value = current.copy(loading = false, error = result.message)
-                    ApiResult.Unauthorized -> _state.value = current.copy(loading = false, error = "Registration is unavailable right now.")
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: HttpException) {
+                    refusal(e)
+                } catch (e: IOException) {
+                    "Can't reach the server. Check your connection."
+                } catch (e: Exception) {
+                    Log.w("Lexicon", "Registration failed", e)
+                    "Couldn't create the account. Please try again."
                 }
+                if (error == null) onRegistered() else _state.value = current.copy(loading = false, error = error)
             }
         }
+    }
+
+    /**
+     * The server refuses with a plain sentence ("Username already exists"), which
+     * safeApiCall flattened to "Server error (HTTP 400)", so the player never learned why.
+     * 5xx bodies carry exception text, so those stay generic.
+     */
+    private fun refusal(e: HttpException): String {
+        if (e.code() in 400..499) {
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull()?.trim()
+            if (!body.isNullOrBlank() && body.length <= 200 && body[0] != '<' && body[0] != '{') return body
+        }
+        return "Couldn't create the account right now. Please try again later."
     }
 }
 
@@ -99,8 +118,6 @@ fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hil
                 Text("Create account", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                 Text("Create one account for Lexicon, Alchemy, Pokémon and Voice.", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(state.username, { viewModel.update { s -> s.copy(username = it) } }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
-                OutlinedTextField(state.displayName, { viewModel.update { s -> s.copy(displayName = it) } }, label = { Text("Display name (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
-                OutlinedTextField(state.email, { viewModel.update { s -> s.copy(email = it) } }, label = { Text("Email (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 OutlinedTextField(state.password, { viewModel.update { s -> s.copy(password = it) } }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 OutlinedTextField(state.confirmPassword, { viewModel.update { s -> s.copy(confirmPassword = it) } }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }

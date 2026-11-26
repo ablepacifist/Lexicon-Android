@@ -89,6 +89,10 @@ fun ScreenScaffold(
     ) {
         Scaffold(
             containerColor = Color.Transparent,
+            // A transparent container has no matching content colour, so without this the text
+            // colour fell through to Compose's default black. Any card on a tinted or see-through
+            // colour then drew its uncoloured text black on dark: potion names were invisible.
+            contentColor = MaterialTheme.colorScheme.onBackground,
             topBar = {
                 TopAppBar(
                     title = {

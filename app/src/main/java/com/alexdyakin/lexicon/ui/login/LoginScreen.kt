@@ -49,9 +49,17 @@ import com.alexdyakin.lexicon.ui.theme.LexGround
 fun LoginScreen(
     onLoggedIn: () -> Unit,
     onRegister: () -> Unit,
+    registeredUsername: String? = null,
+    onRegisteredShown: () -> Unit = {},
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(registeredUsername) {
+        if (registeredUsername != null) {
+            viewModel.accountCreated(registeredUsername)
+            onRegisteredShown()
+        }
+    }
     var passwordVisible by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
@@ -139,6 +147,19 @@ fun LoginScreen(
                             }
                         },
                     )
+
+                    AnimatedVisibility(
+                        visible = state.notice != null && state.error == null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        Text(
+                            state.notice.orEmpty(),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
 
                     // Errors slide in rather than snapping the layout
                     AnimatedVisibility(

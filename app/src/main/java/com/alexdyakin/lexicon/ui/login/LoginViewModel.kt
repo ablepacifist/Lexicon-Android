@@ -20,6 +20,8 @@ data class LoginUiState(
     val password: String = "",
     val loading: Boolean = false,
     val error: String? = null,
+    /** "Account created" after registering; it went straight back here with no word before. */
+    val notice: String? = null,
 )
 
 @HiltViewModel
@@ -30,6 +32,11 @@ class LoginViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
+
+    /** Registration succeeded: fill in the new username and say so. */
+    fun accountCreated(username: String) {
+        _state.value = LoginUiState(username = username, notice = "Account created. Sign in with your new password.")
+    }
 
     fun onUsername(value: String) {
         _state.value = _state.value.copy(username = value, error = null)
@@ -46,7 +53,7 @@ class LoginViewModel @Inject constructor(
             return
         }
 
-        _state.value = current.copy(loading = true, error = null)
+        _state.value = current.copy(loading = true, error = null, notice = null)
 
         viewModelScope.launch {
             try {

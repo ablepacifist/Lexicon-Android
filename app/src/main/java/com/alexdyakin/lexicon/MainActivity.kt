@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +74,9 @@ import javax.inject.Inject
 
 /** Screen transition duration. Short enough not to slow navigation down. */
 private const val NAV_ANIM_MS = 200
+
+/** Saved-state key Register uses to hand the new username back to Sign in. */
+private const val REGISTERED_USERNAME = "registeredUsername"
 
 object Routes {
     const val LOGIN = "login"
@@ -266,7 +270,11 @@ private fun LexiconApp(
                 fadeOut(animationSpec = tween(NAV_ANIM_MS))
         },
     ) {
-        composable(Routes.LOGIN) {
+        composable(Routes.LOGIN) { entry ->
+            // Set by Register on success, so Sign in can say the account was created.
+            val registered by entry.savedStateHandle
+                .getStateFlow<String?>(REGISTERED_USERNAME, null)
+                .collectAsState()
             LoginScreen(
                 onLoggedIn = {
                     sessionExpiry.reset()
@@ -276,9 +284,19 @@ private fun LexiconApp(
                     }
                 },
                 onRegister = { navController.navigate(Routes.REGISTER) },
+                registeredUsername = registered,
+                onRegisteredShown = { entry.savedStateHandle[REGISTERED_USERNAME] = null },
             )
         }
-        composable(Routes.REGISTER) { RegisterScreen(onBackToLogin = { navController.popBackStack() }) }
+        composable(Routes.REGISTER) {
+            RegisterScreen(
+                onBackToLogin = { navController.popBackStack() },
+                onRegistered = { username ->
+                    navController.previousBackStackEntry?.savedStateHandle?.set(REGISTERED_USERNAME, username)
+                    navController.popBackStack()
+                },
+            )
+        }
 
         composable(Routes.HOME) {
             HomeScreen(

@@ -58,7 +58,7 @@ class RegisterViewModel @Inject constructor(private val authApi: AuthApi) : View
 
     fun update(transform: (RegisterUiState) -> RegisterUiState) { _state.value = transform(_state.value).copy(error = null) }
 
-    fun register(onRegistered: () -> Unit) {
+    fun register(onRegistered: (username: String) -> Unit) {
         val current = _state.value
         when {
             current.username.trim().length < 3 -> _state.value = current.copy(error = "Username must be at least 3 characters.")
@@ -82,7 +82,7 @@ class RegisterViewModel @Inject constructor(private val authApi: AuthApi) : View
                     Log.w("Lexicon", "Registration failed", e)
                     "Couldn't create the account. Please try again."
                 }
-                if (error == null) onRegistered() else _state.value = current.copy(loading = false, error = error)
+                if (error == null) onRegistered(current.username.trim()) else _state.value = current.copy(loading = false, error = error)
             }
         }
     }
@@ -102,7 +102,7 @@ class RegisterViewModel @Inject constructor(private val authApi: AuthApi) : View
 }
 
 @Composable
-fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hiltViewModel()) {
+fun RegisterScreen(onBackToLogin: () -> Unit, onRegistered: (username: String) -> Unit, viewModel: RegisterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     // Until now this was the only screen in the app with no background at all — a flat surface
     // one tap from Login's full-bleed art, which made the two look like different apps.
@@ -121,7 +121,7 @@ fun RegisterScreen(onBackToLogin: () -> Unit, viewModel: RegisterViewModel = hil
                 OutlinedTextField(state.password, { viewModel.update { s -> s.copy(password = it) } }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 OutlinedTextField(state.confirmPassword, { viewModel.update { s -> s.copy(confirmPassword = it) } }, label = { Text("Confirm password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(), enabled = !state.loading)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Button(onClick = { viewModel.register(onBackToLogin) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { viewModel.register(onRegistered) }, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) {
                     if (state.loading) CircularProgressIndicator() else Text("Create account")
                 }
                 OutlinedButton(onClick = onBackToLogin, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("I already have an account") }

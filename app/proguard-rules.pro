@@ -3,6 +3,10 @@
 -keep,allowobfuscation,allowshrinking interface retrofit2.Call
 -keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
 -keepclassmembers class com.alexdyakin.lexicon.data.** { *; }
+# Keep the classes themselves, not only their members. A reply class that no code reads (the
+# app ignores RegisterResponse) appears only in the API method's generic signature; R8 deleted
+# it, Retrofit saw Object, and every sign-up failed in release with "Unable to create converter".
+-keep @kotlinx.serialization.Serializable class com.alexdyakin.lexicon.** { *; }
 
 # ── Lexi's on-device speech ─────────────────────────────────────────────────────────
 # Vosk reaches its native library through JNA, which finds Java classes and callbacks by
